@@ -1,0 +1,184 @@
+{
+  "status": "ok",
+  "message-type": "work",
+  "message-version": "1.0.0",
+  "message": {
+    "indexed": {
+      "date-parts": [
+        [
+          2026,
+          6,
+          23
+        ]
+      ],
+      "date-time": "2026-06-23T03:57:11Z",
+      "timestamp": 1782187031673,
+      "version": "3.54.5"
+    },
+    "reference-count": 45,
+    "publisher": "Elsevier BV",
+    "content-domain": {
+      "domain": [
+        "elsevier.com",
+        "sciencedirect.com"
+      ],
+      "crossmark-restriction": true
+    },
+    "short-container-title": [
+      "Applied Thermal Engineering"
+    ],
+    "published-print": {
+      "date-parts": [
+        [
+          2019,
+          11
+        ]
+      ]
+    },
+    "DOI": "10.1016/j.applthermaleng.2019.114301",
+    "type": "journal-article",
+    "created": {
+      "date-parts": [
+        [
+          2019,
+          8,
+          23
+        ]
+      ],
+      "date-time": "2019-08-23T11:42:17Z",
+      "timestamp": 1566560537000
+    },
+    "page": "114301",
+    "update-policy": "https://doi.org/10.1016/elsevier_cm_policy",
+    "source": "Crossref",
+    "is-referenced-by-count": 10,
+    "special_numbering": "C",
+    "title": [
+      "Performance intensification of regeneration process for non-corrosive plastic plate vertical falling film tower"
+    ],
+    "prefix": "10.1016",
+    "volume": "162",
+    "author": [
+      {
+        "given": "Ritunesh",
+        "family": "Kumar",
+        "sequence": "first",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Digvijay",
+        "family": "Patil",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Fu",
+        "family": "Xiao",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Tao",
+        "family": "Lu",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ],
+    "member": "78",
+    "container-title": [
+      "Applied Thermal Engineering"
+    ],
+    "original-title": [],
+    "language": "en",
+    "link": [
+      {
+        "URL": "https://api.elsevier.com/content/article/PII:S1359431119319581?httpAccept=text/xml",
+        "content-type": "text/xml",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      },
+      {
+        "URL": "https://api.elsevier.com/content/article/PII:S1359431119319581?httpAccept=text/plain",
+        "content-type": "text/plain",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      }
+    ],
+    "deposited": {
+      "date-parts": [
+        [
+          2019,
+          9,
+          20
+        ]
+      ],
+      "date-time": "2019-09-20T21:43:45Z",
+      "timestamp": 1569015825000
+    },
+    "score": 1,
+    "resource": {
+      "primary": {
+        "URL": "https://linkinghub.elsevier.com/retrieve/pii/S1359431119319581"
+      }
+    },
+    "subtitle": [],
+    "short-title": [],
+    "issued": {
+      "date-parts": [
+        [
+          2019,
+          11
+        ]
+      ]
+    },
+    "references-count": 45,
+    "alternative-id": [
+      "S1359431119319581"
+    ],
+    "URL": "https://doi.org/10.1016/j.applthermaleng.2019.114301",
+    "relation": {},
+    "ISSN": [
+      "1359-4311"
+    ],
+    "issn-type": [
+      {
+        "value": "1359-4311",
+        "type": "print"
+      }
+    ],
+    "subject": [],
+    "published": {
+      "date-parts": [
+        [
+          2019,
+          11
+        ]
+      ]
+    },
+    "article-number": "114301"
+  }
+}

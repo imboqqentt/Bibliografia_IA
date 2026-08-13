@@ -1,0 +1,1412 @@
+{
+  "name": "Bibliografia Memoria — Telegram a BibTeX",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "e0e200cb-2018-50fd-9215-001ef1994eb7",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -800,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REEMPLAZAR",
+          "name": "Telegram Bot Memoria"
+        }
+      },
+      "notes": "Opcional: en Additional Fields > Restrict to Chat IDs puedes poner tu chat_id como segunda barrera. La validacion obligatoria la hace el nodo siguiente.",
+      "webhookId": "e7e890fc-00a0-52b5-bec6-9a601177549b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8e21ab70-651c-5bcd-9750-e6329cbafe93",
+              "leftValue": "={{ String($json.message?.chat?.id ?? $json.edited_message?.chat?.id ?? '') }}",
+              "rightValue": "={{ String($env.BIBLIO_TELEGRAM_CHAT_ID ?? '').trim() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "acc93ce2-c2be-5d7f-9cd7-ad5bf94f351f",
+      "name": "Chat autorizado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -580,
+        300
+      ],
+      "notes": "Solo responde a tu chat. Falla cerrado: si la variable de entorno no existe, no coincide nada. En n8n Cloud ($env bloqueado) reemplaza el lado derecho por tu chat_id literal."
+    },
+    {
+      "parameters": {},
+      "id": "09eaee16-1998-57bb-ad41-9b16c77a6ab9",
+      "name": "Ignorar mensaje",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        480
+      ],
+      "notes": "Remitente no autorizado: el flujo termina aqui sin responder."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Normalizar entrada\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Toma el mensaje de Telegram y lo convierte en un \"estado\" limpio que\n *   viaja por el resto del flujo. No consulta nada externo.\n *\n *   1. Extrae el texto del mensaje (text o caption).\n *   2. Busca una URL y/o un DOI dentro del texto.\n *   3. Si el DOI viene embebido en la URL (doi.org/..., ?doi=..., /doi/10.xxxx/...)\n *      lo desentierra y lo limpia de basura de tracking.\n *   4. Construye una url_normalizada estable, que se usa como clave de\n *      deduplicacion cuando la fuente NO tiene DOI.\n *   5. Permite pasar un titulo a mano con la sintaxis:  <url> | <titulo>\n *      (util para PDFs de fabricante o normas donde no hay metadatos).\n *\n * ENTRADA:  item del Telegram Trigger\n * SALIDA:   1 item con el objeto de estado completo\n */\n\n// ---------------------------------------------------------------------------\n// Configuracion\n// ---------------------------------------------------------------------------\n\n// Zona horaria para el campo fecha_ingreso y para \"Consultado el ...\" del .bib\nconst ZONA_HORARIA = 'America/Santiago';\n\n// Parametros de tracking que se eliminan al normalizar la URL (para dedupe)\nconst PARAMS_BASURA = [\n  'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',\n  'via', 'ref', 'rss', 'fbclid', 'gclid', 'mc_cid', 'mc_eid', 's', 'sk',\n];\n\n// ---------------------------------------------------------------------------\n// Utilidades\n// ---------------------------------------------------------------------------\n\n/**\n * Limpia un DOI candidato: saca puntuacion final, sufijos de plataforma y\n * fragmentos que a veces quedan pegados al copiar el link.\n */\nfunction limpiarDoi(bruto) {\n  if (!bruto) return null;\n  let doi = String(bruto).trim();\n\n  // A veces llega percent-encoded: 10.1016%2Fj.applthermaleng...\n  try {\n    if (doi.includes('%2F') || doi.includes('%2f')) doi = decodeURIComponent(doi);\n  } catch (e) { /* si el decode falla, seguimos con el original */ }\n\n  // Corta en el primer caracter que nunca forma parte de un DOI\n  doi = doi.split(/[\\s<>\"'()\\[\\]]/)[0];\n\n  // Corta query string / fragmento\n  doi = doi.split('?')[0].split('#')[0];\n\n  // Sufijos que agregan las plataformas al final del path\n  doi = doi.replace(/\\/(full|abstract|pdf|epdf|meta|html)$/i, '');\n\n  // Puntuacion final tipica de \"pegue el link en una frase.\"\n  doi = doi.replace(/[.,;:)\\]}]+$/, '');\n\n  // Validacion final del prefijo registrante\n  return /^10\\.\\d{4,9}\\/\\S+$/.test(doi) ? doi : null;\n}\n\n/**\n * Busca un DOI en cualquier texto (mensaje crudo o URL).\n * Cubre los patrones comunes: doi.org/10.x, /doi/10.x, ?doi=10.x, 10.x suelto.\n */\nfunction buscarDoi(texto) {\n  if (!texto) return null;\n\n  // Se prueba sobre la cadena cruda y sobre la decodificada, porque hay sitios\n  // que pasan el DOI percent-encoded:  ?doi=10.5194%2Fgmd-14-1-2021\n  const variantes = [String(texto)];\n  try {\n    const decodificada = decodeURIComponent(String(texto));\n    if (decodificada !== variantes[0]) variantes.push(decodificada);\n  } catch (e) { /* URL mal formada: seguimos solo con la cruda */ }\n\n  // Orden importa: primero los patrones anclados, despues el DOI suelto.\n  const patrones = [\n    /(?:doi\\.org\\/|dx\\.doi\\.org\\/)(10\\.\\d{4,9}\\/[^\\s\"'<>]+)/i,\n    /[?&]doi=(10\\.\\d{4,9}\\/[^\\s\"'<>&]+)/i,\n    /\\/doi\\/(?:abs\\/|full\\/|pdf\\/|epdf\\/)?(10\\.\\d{4,9}\\/[^\\s\"'<>]+)/i,\n    /\\bdoi:\\s*(10\\.\\d{4,9}\\/[^\\s\"'<>]+)/i,\n    /(10\\.\\d{4,9}\\/[^\\s\"'<>]+)/i,\n  ];\n\n  for (const re of patrones) {\n    for (const v of variantes) {\n      const m = v.match(re);\n      if (m) {\n        const doi = limpiarDoi(m[1]);\n        if (doi) return doi;\n      }\n    }\n  }\n  return null;\n}\n\n/**\n * URL canonica para deduplicar: sin protocolo variable, sin www, sin\n * parametros de tracking, sin barra final, sin fragmento, en minusculas.\n */\nfunction normalizarUrl(url) {\n  if (!url) return '';\n  try {\n    const u = new URL(url);\n    u.hash = '';\n    u.protocol = 'https:';\n    u.hostname = u.hostname.toLowerCase().replace(/^www\\./, '');\n    // Ojo: \"?via%3Dihub\" llega como una CLAVE llamada \"via=ihub\" (el %3D es un '='),\n    // asi que no basta con delete('via'): hay que mirar el prefijo de cada clave.\n    for (const clave of [...u.searchParams.keys()]) {\n      const raiz = clave.toLowerCase().split('=')[0];\n      if (PARAMS_BASURA.includes(raiz)) u.searchParams.delete(clave);\n    }\n\n    // Ordena los parametros que quedan para que el orden no genere falsos negativos\n    const params = [...u.searchParams.entries()].sort((a, b) => a[0].localeCompare(b[0]));\n    u.search = '';\n    for (const [k, v] of params) u.searchParams.append(k, v);\n\n    let salida = u.toString();\n    salida = salida.replace(/\\/$/, '');\n    return salida.toLowerCase();\n  } catch (e) {\n    return String(url).trim().toLowerCase().replace(/\\/$/, '');\n  }\n}\n\n// ---------------------------------------------------------------------------\n// Proceso\n// ---------------------------------------------------------------------------\n\nconst entrada = $input.first().json;\nconst msg = entrada.message || entrada.edited_message || entrada.channel_post || {};\nconst textoOriginal = String(msg.text || msg.caption || '').trim();\n\nif (!textoOriginal) {\n  throw new Error('El mensaje de Telegram no contiene texto ni caption.');\n}\n\n// Sintaxis opcional \"<url o doi> | <titulo a mano>\"\nlet parteLink = textoOriginal;\nlet tituloManual = '';\nconst corte = textoOriginal.indexOf('|');\nif (corte !== -1) {\n  parteLink = textoOriginal.slice(0, corte).trim();\n  tituloManual = textoOriginal.slice(corte + 1).trim();\n}\n\n// Primera URL http(s) que aparezca\nconst mUrl = parteLink.match(/https?:\\/\\/[^\\s<>\"']+/i);\nlet url = mUrl ? mUrl[0].replace(/[.,;:)\\]}]+$/, '') : '';\n\n// DOI: primero desde la URL (mas confiable), despues desde el texto completo\nconst doi = buscarDoi(url) || buscarDoi(parteLink);\n\n// Si mandaron un DOI suelto sin link, construimos la URL de resolucion\nlet urlDescarga = url;\nif (!urlDescarga && doi) urlDescarga = `https://doi.org/${doi}`;\n\n// Pista de titulo: la que se escribio a mano, o el texto si no habia link ni DOI\nlet tituloHint = tituloManual;\nif (!tituloHint && !url && !doi) tituloHint = parteLink;\n\nconst ahora = $now.setZone(ZONA_HORARIA);\n\nreturn [{\n  json: {\n    // --- trazabilidad ---\n    fecha_ingreso: ahora.toFormat('yyyy-LL-dd'),\n    fecha_consulta_legible: ahora.toFormat('dd/LL/yyyy'),\n    telegram_chat_id: msg.chat ? msg.chat.id : null,\n    texto_original: textoOriginal,\n\n    // --- identificadores ---\n    doi: doi || '',\n    tiene_doi: Boolean(doi),\n    url: url || '',\n    url_descarga: urlDescarga || '',\n    url_normalizada: normalizarUrl(urlDescarga || parteLink),\n    hay_url_descarga: Boolean(urlDescarga),\n\n    // --- pistas para Crossref / LLM ---\n    titulo_hint: tituloHint || '',\n\n    // Se marca en SI mas adelante si Crossref no devuelve metadatos utilizables\n    metadatos_manuales: 'NO',\n  },\n}];\n"
+      },
+      "id": "d4f04e0e-60f3-5321-8e22-6777a91386d6",
+      "name": "Normalizar entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        280
+      ],
+      "notes": "Extrae URL y DOI del mensaje. Sin llamadas externas."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1c4dc0ae-55ba-53fc-ab28-27c51704146e",
+              "leftValue": "={{ $json.hay_url_descarga }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "605e413b-61ca-5ff0-a71c-9821815702ff",
+      "name": "Hay URL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -140,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url_descarga }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "es-CL,es;q=0.9,en;q=0.8"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data",
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "adcd494f-d0c3-5367-9119-b310a3f9a675",
+      "name": "Descargar fuente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        80,
+        180
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "neverError + continueRegularOutput: un paywall o un 403 no puede romper el flujo."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7bcc9f43-64bc-5aaa-9c86-41a1eea17244",
+              "leftValue": "={{ String($binary?.data?.mimeType || '') + '|' + String($binary?.data?.fileExtension || '') + '|' + String($('Normalizar entrada').first().json.url_descarga || '') }}",
+              "rightValue": "pdf",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2f4436c4-fe0e-51dc-bc99-269b35e8af8e",
+      "name": "Es PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        300,
+        180
+      ],
+      "notes": "Mira el mime type, la extension y la URL: algunos servidores mandan PDF con content-type generico."
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "data",
+        "options": {
+          "joinPages": true
+        }
+      },
+      "id": "21625d6e-a2e2-53ca-9f76-0aec9c88a5c6",
+      "name": "Extraer texto PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        80
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "PDF escaneado sin capa de texto -> sale vacio y el resumen queda PENDIENTE."
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "data",
+        "destinationKey": "data",
+        "options": {}
+      },
+      "id": "76db8a4f-6864-5f73-b93c-c8375bec6bd5",
+      "name": "Extraer texto HTML",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Devuelve el HTML crudo en $json.data; el nodo siguiente lo limpia y le saca las meta tags citation_doi / citation_title."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Preparar texto\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Recibe lo que haya salido de la descarga (texto de PDF, HTML crudo, o\n *   NADA si no habia URL / la descarga fallo) y produce el texto limpio que\n *   se le pasara al LLM.\n *\n *   Ademas aprovecha el HTML para RESCATAR METADATOS:\n *   muchas editoriales publican <meta name=\"citation_doi\"> y\n *   <meta name=\"citation_title\">, que es la forma mas confiable de sacar el\n *   DOI de un link de ScienceDirect / Springer / Wiley / MDPI, donde el DOI\n *   no aparece en la URL.\n *\n *   NUNCA lanza error: si no hay texto, marca estado_resumen = PENDIENTE y\n *   el flujo sigue igual (requisito: una fuente inaccesible no rompe nada).\n *\n * ENTRADA:  salida de \"Extraer texto PDF\" | \"Extraer texto HTML\" | rama sin URL\n * SALIDA:   1 item = estado de \"Normalizar entrada\" + texto y diagnostico\n */\n\n// ---------------------------------------------------------------------------\n// Configuracion\n// ---------------------------------------------------------------------------\n\n// Tope de caracteres que se le manda al LLM. ~45k chars ≈ 12k tokens.\nconst MAX_CHARS = 45000;\n\n// Bajo este umbral asumimos paywall / pagina vacia / captcha.\nconst MIN_CHARS_UTILES = 600;\n\n// ---------------------------------------------------------------------------\n// Utilidades\n// ---------------------------------------------------------------------------\n\n/** Decodifica las entidades HTML mas comunes. */\nfunction decodificarEntidades(s) {\n  return String(s)\n    .replace(/&nbsp;/gi, ' ')\n    .replace(/&amp;/gi, '&')\n    .replace(/&lt;/gi, '<')\n    .replace(/&gt;/gi, '>')\n    .replace(/&quot;/gi, '\"')\n    .replace(/&#0?39;|&apos;/gi, \"'\")\n    .replace(/&#x?([0-9a-f]+);/gi, (_, cod) =>\n      String.fromCharCode(parseInt(cod, /^x/i.test(cod) ? 16 : 10)));\n}\n\n/** Lee el content de un <meta name=\"...\"> o <meta property=\"...\"> */\nfunction leerMeta(html, nombre) {\n  const escapado = nombre.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const patrones = [\n    new RegExp(`<meta[^>]+(?:name|property)=[\"']${escapado}[\"'][^>]*content=[\"']([^\"']+)[\"']`, 'i'),\n    new RegExp(`<meta[^>]+content=[\"']([^\"']+)[\"'][^>]*(?:name|property)=[\"']${escapado}[\"']`, 'i'),\n  ];\n  for (const re of patrones) {\n    const m = html.match(re);\n    if (m) return decodificarEntidades(m[1]).trim();\n  }\n  return '';\n}\n\n/** Convierte HTML a texto plano legible. */\nfunction htmlATexto(html) {\n  let t = String(html);\n\n  // Fuera todo lo que no es contenido\n  t = t.replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  t = t.replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  t = t.replace(/<noscript\\b[^>]*>[\\s\\S]*?<\\/noscript>/gi, ' ');\n  t = t.replace(/<svg\\b[^>]*>[\\s\\S]*?<\\/svg>/gi, ' ');\n  t = t.replace(/<nav\\b[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  t = t.replace(/<footer\\b[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  t = t.replace(/<header\\b[^>]*>[\\s\\S]*?<\\/header>/gi, ' ');\n  t = t.replace(/<!--[\\s\\S]*?-->/g, ' ');\n\n  // Saltos de linea donde corresponde semanticamente\n  t = t.replace(/<\\/(p|div|section|article|li|h[1-6]|tr|br)\\s*>/gi, '\\n');\n  t = t.replace(/<br\\s*\\/?>/gi, '\\n');\n\n  // Fuera el resto de las etiquetas\n  t = t.replace(/<[^>]+>/g, ' ');\n\n  t = decodificarEntidades(t);\n\n  // Compacta espacios sin destruir parrafos\n  t = t.replace(/[ \\t ]+/g, ' ');\n  t = t.replace(/\\n[ \\t]*/g, '\\n');\n  t = t.replace(/\\n{3,}/g, '\\n\\n');\n\n  return t.trim();\n}\n\n/** Reutiliza la logica de limpieza de DOI del nodo 01. */\nfunction limpiarDoi(bruto) {\n  if (!bruto) return null;\n  let doi = String(bruto).trim();\n  try {\n    if (doi.includes('%2F') || doi.includes('%2f')) doi = decodeURIComponent(doi);\n  } catch (e) { /* noop */ }\n  doi = doi.split(/[\\s<>\"'()\\[\\]]/)[0];\n  doi = doi.split('?')[0].split('#')[0];\n  doi = doi.replace(/\\/(full|abstract|pdf|epdf|meta|html)$/i, '');\n  doi = doi.replace(/[.,;:)\\]}]+$/, '');\n  return /^10\\.\\d{4,9}\\/\\S+$/.test(doi) ? doi : null;\n}\n\n// ---------------------------------------------------------------------------\n// Proceso\n// ---------------------------------------------------------------------------\n\nconst estado = { ...$('Normalizar entrada').first().json };\nconst bruto = $input.first() ? $input.first().json : {};\n\n// De donde puede venir el contenido:\n//   - Extract from File / PDF  -> $json.text\n//   - Extract from File / Text -> $json.data  (HTML crudo, tal cual se descargo)\n//   - rama sin URL             -> nada util\nconst textoPdf = typeof bruto.text === 'string' ? bruto.text : '';\nconst textoPlano = typeof bruto.data === 'string' ? bruto.data : '';\nconst contenido = textoPdf || textoPlano;\n\nconst pareceHtml = /<\\s*(html|head|body|meta|div|p)\\b/i.test(contenido.slice(0, 4000));\n\nlet texto = '';\nlet doiDePagina = null;\nlet tituloDePagina = '';\nlet fuenteTexto = 'ninguna';\n\nif (textoPdf) {\n  texto = textoPdf;\n  fuenteTexto = 'pdf';\n} else if (contenido && pareceHtml) {\n  fuenteTexto = 'html';\n\n  // --- rescate de metadatos desde las meta tags de la editorial ---\n  doiDePagina =\n    limpiarDoi(leerMeta(contenido, 'citation_doi')) ||\n    limpiarDoi(leerMeta(contenido, 'DC.Identifier')) ||\n    limpiarDoi(leerMeta(contenido, 'dc.identifier')) ||\n    limpiarDoi(leerMeta(contenido, 'prism.doi')) ||\n    null;\n\n  // Ultimo recurso: un doi.org dentro del cuerpo de la pagina\n  if (!doiDePagina) {\n    const m = contenido.match(/(?:doi\\.org\\/)(10\\.\\d{4,9}\\/[^\\s\"'<>]+)/i);\n    if (m) doiDePagina = limpiarDoi(m[1]);\n  }\n\n  tituloDePagina =\n    leerMeta(contenido, 'citation_title') ||\n    leerMeta(contenido, 'og:title') ||\n    leerMeta(contenido, 'dc.title') ||\n    (contenido.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)\n      ? decodificarEntidades(RegExp.$1).trim()\n      : '');\n\n  texto = htmlATexto(contenido);\n} else if (contenido) {\n  texto = contenido;\n  fuenteTexto = 'texto-plano';\n}\n\nconst longitudBruta = texto.length;\nif (longitudBruta > MAX_CHARS) texto = texto.slice(0, MAX_CHARS);\n\nconst textoSuficiente = longitudBruta >= MIN_CHARS_UTILES;\n\n// Diagnostico honesto de por que no hay resumen\nlet motivo = '';\nif (!estado.hay_url_descarga) motivo = 'No se recibio URL ni DOI descargable.';\nelse if (!contenido) motivo = 'La descarga no devolvio contenido (paywall, 403, timeout o binario no soportado).';\nelse if (!textoSuficiente) motivo = `Texto extraido demasiado corto (${longitudBruta} caracteres); probable paywall o pagina de redireccion.`;\n\n// El DOI de la pagina manda por sobre el que veniamos arrastrando solo si no habia\nconst doiFinal = estado.doi || doiDePagina || '';\n\nreturn [{\n  json: {\n    ...estado,\n    doi: doiFinal,\n    tiene_doi: Boolean(doiFinal),\n    doi_recuperado_de_pagina: Boolean(!estado.doi && doiDePagina),\n    titulo_hint: estado.titulo_hint || tituloDePagina || '',\n    titulo_pagina: tituloDePagina,\n\n    texto_fuente: texto,\n    longitud_texto: longitudBruta,\n    fuente_texto: fuenteTexto,\n    texto_suficiente: textoSuficiente,\n    motivo_sin_texto: motivo,\n\n    // Se confirma en \"Consolidar registro\"; aqui queda el valor provisorio\n    estado_resumen: textoSuficiente ? 'OK' : 'PENDIENTE',\n  },\n}];\n"
+      },
+      "id": "cb4a2a33-f6b8-5adf-a393-bae020939d31",
+      "name": "Preparar texto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        280
+      ],
+      "notes": "Limpia el texto, lo trunca y rescata DOI/titulo desde las meta tags."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "42aa5381-00db-500d-aeca-57d3a5913a55",
+              "leftValue": "={{ !$json.tiene_doi && (String($json.titulo_hint || '').length > 8 || String($json.titulo_pagina || '').length > 8) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0a374c99-9ddf-567c-9500-94c463f06540",
+      "name": "Falta DOI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        280
+      ],
+      "notes": "Solo busca por titulo si no hay DOI Y hay algun titulo utilizable."
+    },
+    {
+      "parameters": {
+        "url": "https://api.crossref.org/works",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query.bibliographic",
+              "value": "={{ String($json.titulo_hint || $json.titulo_pagina || '').slice(0, 300) }}"
+            },
+            {
+              "name": "rows",
+              "value": "5"
+            },
+            {
+              "name": "select",
+              "value": "DOI,title,author,issued,container-title,type"
+            },
+            {
+              "name": "mailto",
+              "value": "danielh19991@gmail.com"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "BibliografiaMemoria/1.0 (https://n8n.local; mailto:danielh19991@gmail.com)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "9dee4b84-a650-55dc-89b9-32b5f3b55f91",
+      "name": "Crossref buscar por titulo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1180,
+        180
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Polite pool de Crossref: mailto en la query y correo en el User-Agent."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Elegir candidato Crossref\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Solo corre cuando NO se pudo determinar el DOI ni desde el link ni desde\n *   las meta tags de la pagina. Recibe la respuesta de la busqueda por titulo\n *   en Crossref (/works?query.bibliographic=...) y decide si alguno de los\n *   candidatos es realmente la misma obra.\n *\n *   Es deliberadamente CONSERVADOR: si la similitud de titulo no supera el\n *   umbral, prefiere quedarse sin DOI y marcar metadatos_manuales = SI antes\n *   que asignar un DOI equivocado. Un DOI incorrecto en una memoria de titulo\n *   es peor que un campo vacio.\n *\n * ENTRADA:  respuesta JSON de Crossref search (o item de error si fallo)\n * SALIDA:   1 item = estado + doi (si hubo match confiable)\n */\n\n// ---------------------------------------------------------------------------\n// Configuracion\n// ---------------------------------------------------------------------------\n\n// Similitud minima de titulo (0..1) para aceptar el DOI automaticamente.\n// 0.72 es estricto a proposito. Bajalo a ~0.60 si ves demasiados falsos negativos.\nconst UMBRAL_SIMILITUD = 0.72;\n\n// Palabras que no aportan a la comparacion de titulos\nconst VACIAS = new Set([\n  'a', 'an', 'the', 'of', 'on', 'in', 'for', 'and', 'or', 'to', 'with', 'by',\n  'from', 'at', 'as', 'is', 'are', 'using', 'via',\n  'el', 'la', 'los', 'las', 'un', 'una', 'de', 'del', 'y', 'o', 'en', 'para',\n  'con', 'por', 'sobre', 'mediante',\n]);\n\n// ---------------------------------------------------------------------------\n// Utilidades\n// ---------------------------------------------------------------------------\n\n/** Minusculas, sin tildes, sin puntuacion, sin etiquetas HTML. */\nfunction normalizarTexto(s) {\n  return String(s || '')\n    .replace(/<[^>]+>/g, ' ')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .replace(/[^a-z0-9\\s]/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction tokenizar(s) {\n  return normalizarTexto(s).split(' ').filter((w) => w.length > 2 && !VACIAS.has(w));\n}\n\n/**\n * Similitud de titulos sobre bolsas de palabras significativas.\n *\n * Combina dos medidas porque cada una falla en un caso distinto:\n *\n *   - Sorensen-Dice: buena en general, pero castiga fuerte la asimetria de\n *     largo. El titulo que uno anota a mano (\"Performance intensification of\n *     regeneration process\") suele ser un PREFIJO del titulo completo de\n *     Crossref, y Dice lo deja bajo el umbral aunque sea el mismo paper.\n *\n *   - Coeficiente de contencion (|A∩B| / min(|A|,|B|)): resuelve justamente\n *     ese caso, pero por si solo es demasiado permisivo con titulos cortos\n *     (\"energia solar\" calzaria con cualquier paper que use ambas palabras).\n *\n * Por eso la contencion solo se toma en cuenta si hay al menos MIN_COMUNES\n * palabras significativas compartidas, y se le aplica una pequena penalizacion\n * para que nunca puntue mas alto que una coincidencia realmente exacta.\n */\nconst MIN_COMUNES = 3;\n\nfunction similitud(a, b) {\n  const A = new Set(tokenizar(a));\n  const B = new Set(tokenizar(b));\n  if (A.size === 0 || B.size === 0) return 0;\n\n  let comunes = 0;\n  for (const w of A) if (B.has(w)) comunes++;\n\n  const dice = (2 * comunes) / (A.size + B.size);\n  if (comunes < MIN_COMUNES) return dice;\n\n  const contencion = comunes / Math.min(A.size, B.size);\n  return Math.max(dice, contencion * 0.95);\n}\n\n// ---------------------------------------------------------------------------\n// Proceso\n// ---------------------------------------------------------------------------\n\nconst estado = { ...$('Preparar texto').first().json };\nconst respuesta = $input.first() ? $input.first().json : {};\n\n// Referencia contra la cual comparamos: el titulo que pusimos a mano,\n// el <title> de la pagina, o el propio texto del mensaje.\nconst referencia = estado.titulo_hint || estado.titulo_pagina || estado.texto_original || '';\n\nconst candidatos = (respuesta &&\n  respuesta.message &&\n  Array.isArray(respuesta.message.items))\n  ? respuesta.message.items\n  : [];\n\nlet mejor = null;\nlet mejorPuntaje = 0;\n\nfor (const c of candidatos) {\n  const tituloCandidato = Array.isArray(c.title) ? c.title.join(' ') : String(c.title || '');\n  if (!tituloCandidato) continue;\n\n  const p = similitud(referencia, tituloCandidato);\n  if (p > mejorPuntaje) {\n    mejorPuntaje = p;\n    mejor = c;\n  }\n}\n\nconst aceptado = Boolean(mejor && mejorPuntaje >= UMBRAL_SIMILITUD && mejor.DOI);\n\nreturn [{\n  json: {\n    ...estado,\n    doi: aceptado ? String(mejor.DOI).toLowerCase() : '',\n    tiene_doi: aceptado,\n    doi_recuperado_por_busqueda: aceptado,\n\n    // Trazabilidad para poder auditar despues por que se eligio (o no) un DOI\n    crossref_busqueda_candidatos: candidatos.length,\n    crossref_busqueda_puntaje: Number(mejorPuntaje.toFixed(3)),\n    crossref_busqueda_titulo_elegido: mejor\n      ? (Array.isArray(mejor.title) ? mejor.title.join(' ') : String(mejor.title || ''))\n      : '',\n    crossref_busqueda_umbral: UMBRAL_SIMILITUD,\n  },\n}];\n"
+      },
+      "id": "2139f973-1ccd-5221-9bab-4b8da44b2d9d",
+      "name": "Elegir candidato Crossref",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        180
+      ],
+      "notes": "Acepta el DOI solo si la similitud de titulo supera el umbral."
+    },
+    {
+      "parameters": {},
+      "id": "dba97821-d77d-5612-8fc5-825a9615eca9",
+      "name": "Unificar DOI",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        280
+      ],
+      "notes": "Punto de encuentro de las dos ramas de resolucion de DOI."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8eae3acd-12e6-52ac-9805-fe11020673fb",
+              "leftValue": "={{ $json.tiene_doi }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4026be7a-015c-54a2-b6e2-2966b65896f9",
+      "name": "Hay DOI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1840,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.crossref.org/works/{{ $json.doi }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "mailto",
+              "value": "danielh19991@gmail.com"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "BibliografiaMemoria/1.0 (https://n8n.local; mailto:danielh19991@gmail.com)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "49cafa9d-ce6b-5f21-9d93-b316bf05771a",
+      "name": "Crossref metadatos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2060,
+        180
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "FUENTE UNICA de autores, anio, revista, volumen, numero, paginas y tipo. Si devuelve 404, el flujo sigue y marca metadatos_manuales = SI."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Normalizar metadatos\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Traduce la respuesta cruda de Crossref (/works/{doi}) a un conjunto plano\n *   de campos bibliograficos, y mapea el `type` de Crossref al tipo de entrada\n *   BibTeX correcto.\n *\n *   *** ESTE NODO ES LA UNICA FUENTE DE VERDAD BIBLIOGRAFICA. ***\n *   Autores, anio, revista, editorial, volumen, numero, paginas y tipo salen\n *   exclusivamente de aqui. El LLM no toca ninguno de estos campos.\n *\n *   Si no hubo DOI o Crossref no respondio, igual emite un registro valido\n *   con metadatos_manuales = SI, para que la fila quede marcada para revision.\n *\n * ENTRADA:  respuesta de \"Crossref metadatos\" (o rama sin DOI)\n * SALIDA:   1 item = estado + campos bibliograficos normalizados\n */\n\n// ---------------------------------------------------------------------------\n// Mapa Crossref type -> tipo de entrada BibTeX\n// ---------------------------------------------------------------------------\nconst MAPA_TIPO_BIBTEX = {\n  'journal-article': 'article',\n  'journal-issue': 'misc',\n  'journal-volume': 'misc',\n  'journal': 'misc',\n\n  'book': 'book',\n  'monograph': 'book',\n  'edited-book': 'book',\n  'reference-book': 'book',\n\n  'book-chapter': 'incollection',\n  'book-section': 'incollection',\n  'book-part': 'incollection',\n  'book-track': 'incollection',\n  'reference-entry': 'incollection',\n\n  'proceedings-article': 'inproceedings',\n  'proceedings': 'proceedings',\n\n  'report': 'techreport',\n  'report-component': 'techreport',\n  'report-series': 'techreport',\n  'standard': 'techreport',      // normas ISO / NCh / ASME\n  'standard-series': 'techreport',\n\n  'dissertation': 'phdthesis',\n\n  'posted-content': 'misc',      // preprints (arXiv, SSRN, bioRxiv...)\n  'dataset': 'misc',\n  'component': 'misc',\n  'peer-review': 'misc',\n  'other': 'misc',\n};\n\n// ---------------------------------------------------------------------------\n// Utilidades\n// ---------------------------------------------------------------------------\n\n/** Crossref entrega titulos con etiquetas MathML/HTML incrustadas. */\nfunction limpiarCampo(s) {\n  return String(s == null ? '' : s)\n    .replace(/<[^>]+>/g, '')\n    .replace(/&amp;/gi, '&')\n    .replace(/&lt;/gi, '<')\n    .replace(/&gt;/gi, '>')\n    .replace(/&quot;/gi, '\"')\n    .replace(/&#0?39;|&apos;/gi, \"'\")\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\n/** Toma el primer elemento util de un campo que Crossref entrega como array. */\nfunction primero(v) {\n  if (Array.isArray(v)) return limpiarCampo(v.find((x) => x != null && String(x).trim() !== '') || '');\n  return limpiarCampo(v);\n}\n\n/**\n * Normaliza la lista de autores.\n * Distingue personas ({given, family}) de organizaciones ({name}), porque en\n * BibTeX las organizaciones se protegen con llaves para que BibTeX no las\n * parta como \"Apellido, Nombre\".\n */\nfunction normalizarAutores(lista) {\n  if (!Array.isArray(lista)) return [];\n  return lista\n    .map((a) => {\n      if (a && a.name) {\n        return { tipo: 'organizacion', nombre: limpiarCampo(a.name), apellido: limpiarCampo(a.name), given: '' };\n      }\n      const family = limpiarCampo(a && a.family);\n      const given = limpiarCampo(a && a.given);\n      if (!family && !given) return null;\n      return {\n        tipo: 'persona',\n        apellido: family || given,\n        given: family ? given : '',\n        nombre: [given, family].filter(Boolean).join(' '),\n      };\n    })\n    .filter(Boolean);\n}\n\n/** Crossref guarda las fechas como {'date-parts': [[aaaa, mm, dd]]}. */\nfunction extraerAnio(...candidatos) {\n  for (const c of candidatos) {\n    const partes = c && c['date-parts'] && c['date-parts'][0];\n    if (Array.isArray(partes) && partes[0]) return String(partes[0]);\n  }\n  return '';\n}\n\n// ---------------------------------------------------------------------------\n// Proceso\n// ---------------------------------------------------------------------------\n\nconst estado = { ...$('Preparar texto').first().json };\n\n// El DOI puede haber sido resuelto despues de \"Preparar texto\" (rama de busqueda\n// por titulo). \"Unificar DOI\" deja el valor vigente en el item que entra aqui.\nlet doiVigente = estado.doi || '';\n\nconst bruto = $input.first() ? $input.first().json : {};\nconst cr = (bruto && bruto.message && typeof bruto.message === 'object') ? bruto.message : null;\n\n// Si venimos de la rama con DOI, ese item puede traer el estado actualizado\nif (!doiVigente && bruto && bruto.doi) doiVigente = String(bruto.doi);\nif (cr && cr.DOI) doiVigente = String(cr.DOI).toLowerCase();\n\nlet meta;\n\nif (cr) {\n  // --------------------------- CON metadatos Crossref ---------------------\n  const tipoCrossref = String(cr.type || 'other');\n  const autores = normalizarAutores(cr.author);\n  const editores = normalizarAutores(cr.editor);\n\n  const anio = extraerAnio(cr.issued, cr['published-print'], cr['published-online'], cr.created);\n\n  // Institucion (tesis, informes tecnicos y normas)\n  let institucion = '';\n  if (Array.isArray(cr.institution) && cr.institution.length) {\n    institucion = limpiarCampo(cr.institution[0].name || cr.institution[0]);\n  }\n\n  // Nombre del evento (congresos)\n  const evento = cr.event ? limpiarCampo(cr.event.name) : '';\n\n  meta = {\n    titulo: primero(cr.title) || estado.titulo_hint || '(sin titulo)',\n    subtitulo: primero(cr.subtitle),\n    autores,\n    editores,\n    autores_texto: autores.map((a) => a.nombre).join('; '),\n    anio,\n    publicacion: primero(cr['container-title']) || evento || institucion || limpiarCampo(cr.publisher),\n    publicacion_corta: primero(cr['short-container-title']),\n    editorial: limpiarCampo(cr.publisher),\n    institucion,\n    evento,\n    volumen: limpiarCampo(cr.volume),\n    numero: limpiarCampo(cr.issue),\n    paginas: limpiarCampo(cr.page || cr['article-number']),\n    issn: Array.isArray(cr.ISSN) ? cr.ISSN[0] : limpiarCampo(cr.ISSN),\n    isbn: Array.isArray(cr.ISBN) ? cr.ISBN[0] : limpiarCampo(cr.ISBN),\n    tipo_crossref: tipoCrossref,\n    tipo_bibtex: MAPA_TIPO_BIBTEX[tipoCrossref] || 'misc',\n    es_preprint: tipoCrossref === 'posted-content',\n    url_publicada: limpiarCampo(cr.URL) || (doiVigente ? `https://doi.org/${doiVigente}` : ''),\n    metadatos_manuales: 'NO',\n    origen_metadatos: 'crossref',\n  };\n} else {\n  // ------------------- SIN metadatos: pagina web, norma, catalogo ---------\n  // No inventamos nada. Solo lo que efectivamente sabemos.\n  meta = {\n    titulo: estado.titulo_hint || estado.titulo_pagina || estado.url || '(sin titulo)',\n    subtitulo: '',\n    autores: [],\n    editores: [],\n    autores_texto: '',\n    anio: '',\n    publicacion: '',\n    publicacion_corta: '',\n    editorial: '',\n    institucion: '',\n    evento: '',\n    volumen: '',\n    numero: '',\n    paginas: '',\n    issn: '',\n    isbn: '',\n    tipo_crossref: 'web',\n    tipo_bibtex: 'misc',\n    es_preprint: false,\n    url_publicada: estado.url || estado.url_descarga || '',\n    metadatos_manuales: 'SI',\n    origen_metadatos: doiVigente ? 'crossref-sin-respuesta' : 'sin-doi',\n  };\n}\n\n// Si Crossref respondio pero sin autores ni anio, tampoco sirve para citar solo\nif (meta.origen_metadatos === 'crossref' && meta.autores.length === 0 && !meta.anio) {\n  meta.metadatos_manuales = 'SI';\n}\n\nreturn [{\n  json: {\n    ...estado,\n    ...meta,\n    doi: doiVigente,\n    tiene_doi: Boolean(doiVigente),\n    url_final: estado.url || meta.url_publicada || estado.url_descarga || '',\n  },\n}];\n"
+      },
+      "id": "3ac89a37-a2ae-507e-bf0a-b9ef0bcbf5d2",
+      "name": "Normalizar metadatos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        280
+      ],
+      "notes": "Crossref -> campos planos + mapeo type -> tipo de entrada BibTeX."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "REEMPLAZAR_ID_DE_LA_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Consolidado",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "a34d0b5b-1279-51fc-b6d5-7a686e34f607",
+      "name": "Leer consolidado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2500,
+        280
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR",
+          "name": "Google Sheets Memoria"
+        }
+      },
+      "notes": "A proposito SIN continueOnFail: si no se puede leer el consolidado hay que detenerse, porque sin el no se puede deduplicar y se duplicarian filas."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Dedupe y citation key\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Recibe TODAS las filas actuales del consolidado (Google Sheets) y:\n *\n *   1. DEDUPLICA. Si el DOI ya esta registrado -> duplicado.\n *      Si no hay DOI, compara la url_normalizada -> duplicado.\n *      Esto es lo que hace el flujo idempotente: reenviar el mismo link no\n *      escribe nada nuevo en ningun lado.\n *\n *   2. GENERA LA CITATION KEY con la convencion apellidoAAAApalabraclave,\n *      todo en minusculas, sin tildes ni caracteres especiales, y le agrega\n *      sufijo b, c, d... si esa key ya existe en el consolidado.\n *\n *   Se ejecuta ANTES de cualquier escritura y antes de gastar tokens de LLM.\n *\n * ENTRADA:  filas de \"Leer consolidado\" (puede venir 1 item vacio si la\n *           planilla esta recien creada; el nodo tiene alwaysOutputData=true)\n * SALIDA:   1 item = estado + { duplicado, citation_key }\n */\n\n// ---------------------------------------------------------------------------\n// Configuracion\n// ---------------------------------------------------------------------------\n\n// Palabras que no sirven como \"palabraclave\" de la citation key\nconst VACIAS = new Set([\n  'a', 'an', 'the', 'of', 'on', 'in', 'for', 'and', 'or', 'to', 'with', 'by',\n  'from', 'at', 'as', 'is', 'are', 'was', 'were', 'using', 'via', 'about',\n  'study', 'analysis', 'new', 'towards', 'toward',\n  'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'y', 'o',\n  'en', 'para', 'con', 'por', 'sobre', 'mediante', 'estudio', 'analisis',\n]);\n\n// ---------------------------------------------------------------------------\n// Utilidades\n// ---------------------------------------------------------------------------\n\n/**\n * Deja solo [a-z0-9]: minusculas, sin tildes, sin ñ, sin guiones.\n * \"Muñoz-Peña\" -> \"munozpena\" ; \"Ávila\" -> \"avila\"\n */\nfunction ascii(s) {\n  return String(s || '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')   // quita los diacriticos ya separados\n    .replace(/ø/gi, 'o')\n    .replace(/æ/gi, 'ae')\n    .replace(/ß/gi, 'ss')\n    .replace(/đ|ð/gi, 'd')\n    .replace(/ł/gi, 'l')\n    .toLowerCase()\n    .replace(/[^a-z0-9]/g, '');\n}\n\n/** Primera palabra significativa del titulo, en ascii. */\nfunction palabraClave(titulo) {\n  const palabras = String(titulo || '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .replace(/[^a-z0-9\\s]/g, ' ')\n    .split(/\\s+/)\n    .filter(Boolean);\n\n  const util = palabras.find((w) => w.length > 3 && !VACIAS.has(w));\n  return ascii(util || palabras[0] || 'ref').slice(0, 20);\n}\n\n/**\n * Sufijo alfabetico al estilo BibTeX: '', 'b', 'c', ... 'z', 'aa', 'ab'...\n * (el indice 0 no lleva sufijo, que es la key \"limpia\")\n */\nfunction sufijo(indice) {\n  if (indice <= 0) return '';\n  let n = indice;            // 1 -> b, 2 -> c ...\n  let s = '';\n  n += 1;                    // desplaza para que 1 caiga en 'b'\n  while (n > 0) {\n    const r = (n - 1) % 26;\n    s = String.fromCharCode(97 + r) + s;\n    n = Math.floor((n - 1) / 26);\n  }\n  return s;\n}\n\n/** Normalizacion de URL identica a la del nodo 01, para comparar peras con peras. */\nfunction normalizarUrl(url) {\n  if (!url) return '';\n  const PARAMS_BASURA = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term',\n    'utm_content', 'via', 'ref', 'rss', 'fbclid', 'gclid', 'mc_cid', 'mc_eid', 's', 'sk'];\n  try {\n    const u = new URL(url);\n    u.hash = '';\n    u.protocol = 'https:';\n    u.hostname = u.hostname.toLowerCase().replace(/^www\\./, '');\n    // Ojo: \"?via%3Dihub\" llega como una CLAVE llamada \"via=ihub\" (el %3D es un '='),\n    // asi que no basta con delete('via'): hay que mirar el prefijo de cada clave.\n    for (const clave of [...u.searchParams.keys()]) {\n      const raiz = clave.toLowerCase().split('=')[0];\n      if (PARAMS_BASURA.includes(raiz)) u.searchParams.delete(clave);\n    }\n    const params = [...u.searchParams.entries()].sort((a, b) => a[0].localeCompare(b[0]));\n    u.search = '';\n    for (const [k, v] of params) u.searchParams.append(k, v);\n    return u.toString().replace(/\\/$/, '').toLowerCase();\n  } catch (e) {\n    return String(url).trim().toLowerCase().replace(/\\/$/, '');\n  }\n}\n\n// ---------------------------------------------------------------------------\n// Proceso\n// ---------------------------------------------------------------------------\n\nconst estado = { ...$('Normalizar metadatos').first().json };\n\n// Filas existentes. Si la planilla esta vacia llega un unico item {} por\n// alwaysOutputData, por eso filtramos por citation_key presente.\nconst filas = $input.all()\n  .map((i) => i.json || {})\n  .filter((f) => f && String(f.citation_key || '').trim() !== '');\n\nconst doiNuevo = String(estado.doi || '').trim().toLowerCase();\nconst urlNueva = estado.url_normalizada || normalizarUrl(estado.url_final || estado.url);\n\n// --- 1. Deteccion de duplicado -------------------------------------------\nlet filaDuplicada = null;\n\nif (doiNuevo) {\n  filaDuplicada = filas.find(\n    (f) => String(f.doi || '').trim().toLowerCase() === doiNuevo,\n  ) || null;\n}\n\nif (!filaDuplicada && urlNueva) {\n  filaDuplicada = filas.find(\n    (f) => normalizarUrl(f.url || '') === urlNueva,\n  ) || null;\n}\n\n// --- 2. Citation key ------------------------------------------------------\nconst primerAutor = (estado.autores && estado.autores.length)\n  ? estado.autores[0]\n  : ((estado.editores && estado.editores.length) ? estado.editores[0] : null);\n\nlet base = '';\nif (primerAutor) {\n  base = ascii(primerAutor.apellido);\n} else if (estado.institucion) {\n  base = ascii(estado.institucion).slice(0, 14);\n} else if (estado.editorial) {\n  base = ascii(estado.editorial).slice(0, 14);\n} else {\n  // ultimo recurso: el dominio del sitio (\"nch\", \"sciencedirect\", \"skf\"...)\n  try {\n    base = ascii(new URL(estado.url_final || estado.url).hostname.replace(/^www\\./, '').split('.')[0]);\n  } catch (e) {\n    base = 'anon';\n  }\n}\nif (!base) base = 'anon';\n\n// Anio: 'sf' = sin fecha (convencion bibliografica en espanol)\nconst anio = /^\\d{4}$/.test(String(estado.anio || '')) ? String(estado.anio) : 'sf';\n\nconst keyBase = `${base}${anio}${palabraClave(estado.titulo)}`;\n\n// Colisiones contra las keys que YA existen en el consolidado\nconst keysExistentes = new Set(filas.map((f) => String(f.citation_key || '').trim().toLowerCase()));\n\nlet indice = 0;\nlet citationKey = keyBase;\nwhile (keysExistentes.has(citationKey.toLowerCase())) {\n  indice += 1;\n  citationKey = keyBase + sufijo(indice);\n  if (indice > 200) break;   // salvaguarda contra bucle infinito\n}\n\nreturn [{\n  json: {\n    ...estado,\n\n    duplicado: Boolean(filaDuplicada),\n    citation_key_existente: filaDuplicada ? String(filaDuplicada.citation_key || '') : '',\n    fila_duplicada_titulo: filaDuplicada ? String(filaDuplicada.titulo || '') : '',\n    fila_duplicada_link_nota: filaDuplicada ? String(filaDuplicada.link_nota || '') : '',\n\n    citation_key: citationKey,\n    citation_key_base: keyBase,\n    citation_key_sufijo_aplicado: indice > 0,\n\n    url_normalizada: urlNueva,\n    filas_revisadas: filas.length,\n  },\n}];\n"
+      },
+      "id": "69fbff1a-28ea-528c-bd21-d519cae91f26",
+      "name": "Dedupe y citation key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        280
+      ],
+      "notes": "Detecta duplicados por DOI/URL y genera la citation key con sufijo."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1b4bd34b-2fbe-5e47-a2c5-8f33e6fe3750",
+              "leftValue": "={{ $json.duplicado }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "25ffc622-bb44-57d6-853f-d345f6090549",
+      "name": "Ya registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2940,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "=Ya registrado, citation key: {{ $json.citation_key_existente }}\n\n{{ $json.fila_duplicada_titulo }}\n{{ $json.fila_duplicada_link_nota }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "6267dd7c-a573-5264-9b61-4a5f4db3890e",
+      "name": "Avisar duplicado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3160,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "credentials": {
+        "telegramApi": {
+          "id": "REEMPLAZAR",
+          "name": "Telegram Bot Memoria"
+        }
+      },
+      "notes": "Fin del flujo: no se escribe nada en .bib, Docs ni Sheets."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b90af64-37b1-5e80-820d-1af627062f69",
+              "leftValue": "={{ $json.texto_suficiente }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4a3bb607-3baf-5e64-b524-1a727c5da5f8",
+      "name": "Hay texto para resumir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3160,
+        400
+      ],
+      "notes": "Si no hay texto util, se salta el LLM y la referencia se registra igual con estado_resumen = PENDIENTE."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un asistente de investigacion para una memoria de titulo de Ingenieria Mecanica.\n\nREGLAS ESTRICTAS\n1. Responde SIEMPRE en espanol de Chile, en registro tecnico y sobrio.\n2. NO inventes ni corrijas datos bibliograficos. Autores, anio, revista y tipo\n   ya fueron obtenidos de Crossref y NO son parte de tu tarea. Si el texto\n   contradice los metadatos, ignoralo: tu unica tarea es resumir el contenido.\n3. Si el texto de la fuente esta incompleto o truncado, resume solo lo que\n   efectivamente aparece y dilo en el resumen. No rellenes con suposiciones.\n4. Devuelve unicamente el JSON pedido, sin texto adicional.\n\nMETADATOS DE LA FUENTE (contexto, no los repitas en tu respuesta)\n- Titulo: {{ $json.titulo }}\n- Autores: {{ $json.autores_texto || 'no disponibles' }}\n- Anio: {{ $json.anio || 'no disponible' }}\n- Publicacion: {{ $json.publicacion || 'no disponible' }}\n- Tipo: {{ $json.tipo_crossref }}\n\nCAMPOS QUE DEBES PRODUCIR\n- resumen: entre 200 y 300 palabras. Estructuralo en cuatro focos, en prosa\n  continua (sin vinetas ni titulos): objetivo del trabajo, metodo o enfoque\n  experimental/numerico, resultados principales con cifras cuando existan, y\n  limitaciones o alcances declarados.\n- descripcion_breve: UNA sola linea, maximo 15 palabras, sin punto final.\n- palabras_clave: entre 3 y 5 terminos tecnicos en espanol.\n- utilidad: UNA linea sobre para que sirve esta fuente en una memoria de\n  Ingenieria Mecanica (que capitulo o argumento podria sustentar).\n\nTEXTO DE LA FUENTE\n<<<\n{{ $json.texto_fuente }}\n>>>",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "id": "1ceeba85-9ae7-510b-8b6d-681d3487e863",
+      "name": "Resumir con LLM",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        3400,
+        320
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "El LLM SOLO redacta resumen, descripcion breve, palabras clave y utilidad."
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-6",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-4-6"
+        },
+        "options": {
+          "maxTokensToSample": 2048,
+          "temperature": 0.2
+        }
+      },
+      "id": "7e458b48-fbc7-5b09-a8f3-aa00d2eeaf26",
+      "name": "Modelo Anthropic",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        3340,
+        560
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REEMPLAZAR",
+          "name": "Anthropic Memoria"
+        }
+      },
+      "notes": "Si tu version de n8n no lista este modelo, elige otro del desplegable."
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"resumen\",\n    \"descripcion_breve\",\n    \"palabras_clave\",\n    \"utilidad\"\n  ],\n  \"additionalProperties\": false,\n  \"properties\": {\n    \"resumen\": {\n      \"type\": \"string\",\n      \"description\": \"Resumen en espanol de 200 a 300 palabras: objetivo, metodo, resultados y limitaciones.\"\n    },\n    \"descripcion_breve\": {\n      \"type\": \"string\",\n      \"description\": \"Una sola linea, maximo 15 palabras, sin punto final.\"\n    },\n    \"palabras_clave\": {\n      \"type\": \"array\",\n      \"minItems\": 3,\n      \"maxItems\": 5,\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Entre 3 y 5 terminos tecnicos en espanol.\"\n    },\n    \"utilidad\": {\n      \"type\": \"string\",\n      \"description\": \"Una linea sobre su utilidad en una memoria de Ingenieria Mecanica.\"\n    }\n  }\n}"
+      },
+      "id": "9c7bd908-c500-5258-81a4-ca286e8c8414",
+      "name": "Formato JSON del resumen",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        3560,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Consolidar registro\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Junta los metadatos de Crossref (nodo 04) con el resumen del LLM y produce\n *   las tres cosas que se van a escribir:\n *\n *     a) bibtex_entry  -> la entrada que se agrega a referencias.bib\n *     b) nota_texto    -> el cuerpo del Google Doc de lectura\n *     c) los campos de la fila del consolidado (los arma el nodo 08)\n *\n *   ESCAPADO LaTeX\n *     Se escapan & % $ # _ { } ~ ^ \\ en TODOS los campos del .bib.\n *     Se mantiene UTF-8 para tildes y ñ (asume \\usepackage[utf8]{inputenc}\n *     con pdfLaTeX, o directamente LuaLaTeX/XeLaTeX).\n *     El titulo se envuelve en llaves dobles -> title = {{...}} para que\n *     BibTeX no baje a minusculas los acronimos (CFD, ASME, NCh).\n *\n *   El LLM SOLO aporta resumen, descripcion_breve, palabras_clave y utilidad.\n *   Ningun campo bibliografico se toma de su salida.\n *\n * ENTRADA:  salida de \"Resumir con LLM\" (rama con texto) o de la rama sin texto\n * SALIDA:   1 item con todo lo necesario para escribir\n */\n\n// ---------------------------------------------------------------------------\n// Escapado LaTeX\n// ---------------------------------------------------------------------------\n\n// Mapa de caracteres reservados de LaTeX -> su forma segura.\n// Se aplica en UNA sola pasada de regex para no re-escapar las barras\n// invertidas que el propio escapado introduce.\nconst MAPA_LATEX = {\n  '\\\\': '\\\\textbackslash{}',\n  '{': '\\\\{',\n  '}': '\\\\}',\n  '&': '\\\\&',\n  '%': '\\\\%',\n  '$': '\\\\$',\n  '#': '\\\\#',\n  '_': '\\\\_',\n  '~': '\\\\textasciitilde{}',\n  '^': '\\\\textasciicircum{}',\n};\n\n/**\n * Escapa los 10 caracteres reservados de LaTeX.\n * NO toca acentos ni ñ: quedan en UTF-8 tal cual.\n */\nfunction escLatex(valor) {\n  return String(valor == null ? '' : valor)\n    .replace(/[\\\\{}&%$#_~^]/g, (ch) => MAPA_LATEX[ch])\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\n/**\n * Campo de titulo: escapado + llaves dobles.\n * title = {{Análisis CFD de un Túnel de Viento}}\n * Las llaves externas son las del campo BibTeX; las internas protegen las\n * mayusculas y los acronimos del case-folding de los estilos bibliograficos.\n */\nfunction campoTitulo(valor) {\n  return `{{${escLatex(valor)}}}`;\n}\n\n/** Campo normal: escapado dentro de llaves simples. */\nfunction campo(valor) {\n  return `{${escLatex(valor)}}`;\n}\n\n/**\n * Campo de identificador (doi / url): escapado MINIMO, a proposito.\n *\n * Un DOI de Springer como 10.1007/978-3-030-14907-9_5 lleva guion bajo, y una\n * URL puede llevar _ & ~. Si se escaparan como \\_ \\& \\textasciitilde{}, el\n * texto se veria bien pero el ENLACE quedaria roto: hyperref usa el contenido\n * literal del campo como destino del href. Por eso estos dos campos van crudos,\n * igual que como los exportan Zotero o JabRef.\n *\n * Las dos unicas excepciones son % y #, que rompen al tokenizador de LaTeX\n * antes de que hyperref alcance a verlos (% abre comentario, # es parametro de\n * macro). hyperref si acepta \\% y \\# dentro de \\url y \\href.\n *\n * Requiere que el preambulo cargue hyperref o url (todas las plantillas de\n * Overleaf lo hacen). Ver SUPUESTOS.md.\n */\nfunction campoIdentificador(valor) {\n  const limpio = String(valor == null ? '' : valor)\n    .trim()\n    .replace(/%/g, '\\\\%')\n    .replace(/#/g, '\\\\#');\n  return `{${limpio}}`;\n}\n\n/**\n * Autores en formato BibTeX: \"Apellido, Nombre and Apellido2, Nombre2\".\n * Las organizaciones van entre llaves para que BibTeX no las interprete como\n * \"Apellido, Nombre\":  author = {{Sociedad Chilena de Ingeniería}}\n */\nfunction autoresBibtex(lista) {\n  if (!Array.isArray(lista) || lista.length === 0) return '';\n  return lista\n    .map((a) => {\n      if (a.tipo === 'organizacion') return `{${escLatex(a.nombre)}}`;\n      if (a.given) return `${escLatex(a.apellido)}, ${escLatex(a.given)}`;\n      return escLatex(a.apellido);\n    })\n    .join(' and ');\n}\n\n/** Rango de paginas: Crossref usa \"123-145\", BibTeX quiere \"123--145\". */\nfunction paginasBibtex(p) {\n  return escLatex(String(p || '').replace(/\\s*[-–—]+\\s*/g, '--'));\n}\n\n// ---------------------------------------------------------------------------\n// Lectura defensiva de la salida del LLM\n// ---------------------------------------------------------------------------\n\n/**\n * Segun la version del nodo \"Basic LLM Chain\", la salida del Structured Output\n * Parser puede llegar como:\n *   - el objeto desempaquetado en la raiz de $json\n *   - dentro de $json.output\n *   - como string JSON dentro de $json.text\n * Esta funcion cubre los tres casos sin romperse.\n */\nfunction leerSalidaLlm(bruto) {\n  if (!bruto || typeof bruto !== 'object') return {};\n\n  const candidatos = [bruto.output, bruto, bruto.data];\n  for (const c of candidatos) {\n    if (c && typeof c === 'object' && !Array.isArray(c) && typeof c.resumen === 'string') {\n      return c;\n    }\n  }\n\n  if (typeof bruto.text === 'string') {\n    try {\n      const parsed = JSON.parse(bruto.text);\n      if (parsed && typeof parsed === 'object') return parsed;\n    } catch (e) { /* no era JSON */ }\n  }\n  return {};\n}\n\n// ---------------------------------------------------------------------------\n// Proceso\n// ---------------------------------------------------------------------------\n\nconst estado = { ...$('Dedupe y citation key').first().json };\nconst llm = leerSalidaLlm($input.first() ? $input.first().json : {});\n\nconst key = estado.citation_key;\nconst tipo = estado.tipo_bibtex || 'misc';\n\n// --- Resumen ---------------------------------------------------------------\nconst resumen = String(llm.resumen || '').trim();\nconst hayResumen = resumen.length > 100;\n\nconst descripcionBreve = String(llm.descripcion_breve || '').trim() ||\n  (estado.motivo_sin_texto ? 'Sin resumen automatico; revisar a mano' : '');\n\nconst palabrasClave = Array.isArray(llm.palabras_clave)\n  ? llm.palabras_clave.map((p) => String(p).trim()).filter(Boolean)\n  : String(llm.palabras_clave || '').split(/[,;]/).map((p) => p.trim()).filter(Boolean);\n\nconst utilidad = String(llm.utilidad || '').trim();\n\nconst estadoResumen = hayResumen ? 'LISTO' : 'PENDIENTE';\n\n// --- Construccion de la entrada BibTeX -------------------------------------\n// Cada tipo declara sus campos en orden. Los vacios se descartan al final.\nconst campos = [];\nconst push = (nombre, valor) => { if (valor && valor !== '{}' && valor !== '{{}}') campos.push([nombre, valor]); };\n\nconst autores = autoresBibtex(estado.autores);\nconst editores = autoresBibtex(estado.editores);\n\npush('author', autores ? `{${autores}}` : '');\nif (!autores && editores) push('editor', `{${editores}}`);\npush('title', campoTitulo(estado.titulo));\n\nswitch (tipo) {\n  case 'article':\n    push('journal', campo(estado.publicacion));\n    push('volume', campo(estado.volumen));\n    push('number', campo(estado.numero));\n    push('pages', estado.paginas ? `{${paginasBibtex(estado.paginas)}}` : '');\n    break;\n\n  case 'book':\n    push('publisher', campo(estado.editorial));\n    push('isbn', campo(estado.isbn));\n    break;\n\n  case 'incollection':\n    push('booktitle', campoTitulo(estado.publicacion));\n    if (autores && editores) push('editor', `{${editores}}`);\n    push('publisher', campo(estado.editorial));\n    push('pages', estado.paginas ? `{${paginasBibtex(estado.paginas)}}` : '');\n    break;\n\n  case 'inproceedings':\n  case 'proceedings':\n    push('booktitle', campoTitulo(estado.evento || estado.publicacion));\n    push('publisher', campo(estado.editorial));\n    push('pages', estado.paginas ? `{${paginasBibtex(estado.paginas)}}` : '');\n    break;\n\n  case 'techreport':\n    push('institution', campo(estado.institucion || estado.editorial || estado.publicacion));\n    push('number', campo(estado.numero));\n    push('type', campo(estado.tipo_crossref === 'standard' ? 'Norma tecnica' : ''));\n    break;\n\n  case 'phdthesis':\n    push('school', campo(estado.institucion || estado.editorial || estado.publicacion));\n    break;\n\n  default: // misc\n    push('publisher', campo(estado.editorial));\n    break;\n}\n\npush('year', campo(estado.anio));\npush('doi', campoIdentificador(estado.doi));\npush('url', campoIdentificador(estado.url_final || estado.url));\n\n// --- Notas segun el caso ---------------------------------------------------\nconst notas = [];\n\nif (tipo === 'misc' && !estado.doi) {\n  // Pagina web / catalogo / norma sin DOI\n  const host = (() => {\n    try { return new URL(estado.url_final || estado.url).hostname.replace(/^www\\./, ''); }\n    catch (e) { return ''; }\n  })();\n  if (host) push('howpublished', campo(`En línea: ${host}`));\n  notas.push(`Consultado el ${estado.fecha_consulta_legible}`);\n} else if (estado.es_preprint) {\n  notas.push(`Preprint${estado.publicacion ? ' publicado en ' + estado.publicacion : ''}`);\n  notas.push(`Consultado el ${estado.fecha_consulta_legible}`);\n}\n\nif (estado.metadatos_manuales === 'SI') {\n  notas.push('METADATOS POR VERIFICAR A MANO');\n}\n\nif (notas.length) push('note', campo(notas.join('. ')));\n\n// Ancho de la columna de nombres de campo, para que quede prolijo al leerlo\nconst anchoMax = campos.reduce((m, [n]) => Math.max(m, n.length), 0);\nconst cuerpo = campos\n  .map(([n, v]) => `  ${n.padEnd(anchoMax)} = ${v}`)\n  .join(',\\n');\n\nconst bibtexEntry = `@${tipo}{${key},\\n${cuerpo}\\n}`;\n\n// --- Cuerpo de la nota de lectura (Google Docs) ----------------------------\n// Sin la entrada BibTeX: esa vive solo en referencias.bib.\nconst lineasNota = [\n  estado.titulo,\n  '',\n  `Autores: ${estado.autores_texto || '(no disponibles en Crossref)'}`,\n  `Año: ${estado.anio || '(sin fecha)'}`,\n  `Publicación: ${estado.publicacion || '(no disponible)'}`,\n  `Tipo: @${tipo} (Crossref: ${estado.tipo_crossref})`,\n  `Citation key: ${key}`,\n  `DOI: ${estado.doi || '(sin DOI)'}`,\n  `Link: ${estado.url_final || estado.url || '(sin link)'}`,\n  `Metadatos manuales: ${estado.metadatos_manuales}`,\n  `Estado del resumen: ${estadoResumen}`,\n  '',\n  '--- RESUMEN ---',\n  hayResumen ? resumen : `(Pendiente) ${estado.motivo_sin_texto || 'No se pudo extraer texto de la fuente.'}`,\n  '',\n  '--- PALABRAS CLAVE ---',\n  palabrasClave.length ? palabrasClave.join(', ') : '(pendiente)',\n  '',\n  '--- UTILIDAD PARA LA MEMORIA ---',\n  utilidad || '(pendiente)',\n  '',\n  '--- NOTAS PROPIAS ---',\n  '',\n];\n\nreturn [{\n  json: {\n    ...estado,\n\n    // Resumen del LLM\n    resumen,\n    descripcion_breve: descripcionBreve.slice(0, 200),\n    palabras_clave: palabrasClave,\n    palabras_clave_texto: palabrasClave.join(', '),\n    utilidad,\n    estado_resumen: estadoResumen,\n\n    // Artefactos listos para escribir\n    bibtex_entry: bibtexEntry,\n    bibtex_tipo: `@${tipo}`,\n    nota_titulo: `${key} — ${String(estado.titulo).slice(0, 120)}`,\n    nota_texto: lineasNota.join('\\n'),\n  },\n}];\n"
+      },
+      "id": "b946076a-4aa4-5097-b1d7-6953ab369d4c",
+      "name": "Consolidar registro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3800,
+        400
+      ],
+      "notes": "Arma la entrada BibTeX con escapado LaTeX y el cuerpo de la nota."
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "owner": {
+          "__rl": true,
+          "value": "REEMPLAZAR_USUARIO_GITHUB",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "REEMPLAZAR_REPO_OVERLEAF",
+          "mode": "name"
+        },
+        "filePath": "referencias.bib",
+        "asBinaryProperty": false
+      },
+      "id": "eddfea6e-49c9-5774-8380-987ba1a1f03c",
+      "name": "Leer referencias.bib",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        4020,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "githubApi": {
+          "id": "REEMPLAZAR",
+          "name": "GitHub Memoria"
+        }
+      },
+      "notes": "Lee de la rama por defecto del repo. El archivo debe existir (aunque este vacio)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Construir bib actualizado\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Read-modify-write del archivo referencias.bib alojado en GitHub.\n *\n *   1. Decodifica el contenido base64 que devuelve el nodo GitHub (file:get).\n *   2. IDEMPOTENCIA REAL sobre el archivo: si el DOI o la citation key ya\n *      estan en el .bib, no agrega nada y devuelve el archivo intacto.\n *   3. Si la key ya existe pero apunta a otra obra, corre el sufijo\n *      (b, c, d...) y reescribe la primera linea de la entrada. La key final\n *      que sale de aqui es la que usan la nota, la planilla y el mensaje de\n *      Telegram: una sola fuente de verdad.\n *   4. Devuelve el contenido nuevo YA en base64. El nodo GitHub detecta que\n *      es base64 valido y lo sube tal cual, lo que evita el clasico error\n *      \"content is not valid Base64\" con archivos que mezclan UTF-8 y llaves.\n *\n * ENTRADA:  salida de \"Leer referencias.bib\" (GitHub file:get, no binario)\n * SALIDA:   1 item con contenido_base64, citation_key final y bib_modificado\n */\n\n// ---------------------------------------------------------------------------\n// Configuracion\n// ---------------------------------------------------------------------------\n\n// Cabecera que se escribe si el archivo estaba completamente vacio\nconst CABECERA = [\n  '% referencias.bib',\n  '% Generado y mantenido automaticamente por el flujo de n8n \"Bibliografia Memoria\".',\n  '% Las entradas se agregan al final. Editar a mano es seguro: el flujo solo hace append.',\n  '',\n].join('\\n');\n\n// ---------------------------------------------------------------------------\n// Utilidades\n// ---------------------------------------------------------------------------\n\n/** Escapa una cadena para usarla literal dentro de una expresion regular. */\nfunction reEscape(s) {\n  return String(s).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n}\n\n/** Sufijos BibTeX: 1 -> b, 2 -> c, ..., 25 -> z, 26 -> aa */\nfunction sufijo(indice) {\n  if (indice <= 0) return '';\n  let n = indice + 1;\n  let s = '';\n  while (n > 0) {\n    const r = (n - 1) % 26;\n    s = String.fromCharCode(97 + r) + s;\n    n = Math.floor((n - 1) / 26);\n  }\n  return s;\n}\n\n// ---------------------------------------------------------------------------\n// Proceso\n// ---------------------------------------------------------------------------\n\nconst registro = { ...$('Consolidar registro').first().json };\nconst respuestaGh = $input.first() ? $input.first().json : {};\n\n// --- 1. Contenido actual del archivo --------------------------------------\nlet contenido = '';\nlet archivoExiste = false;\n\nif (respuestaGh && typeof respuestaGh.content === 'string' && respuestaGh.content.length) {\n  archivoExiste = true;\n  // GitHub devuelve base64 con saltos de linea cada 60 caracteres\n  contenido = Buffer.from(respuestaGh.content.replace(/\\s/g, ''), 'base64').toString('utf8');\n} else if (respuestaGh && respuestaGh.error) {\n  // El nodo GitHub tiene onError=continueRegularOutput: un 404 llega como item de error.\n  throw new Error(\n    'No se pudo leer referencias.bib en GitHub. Crea el archivo (aunque sea vacio) ' +\n    'en la rama configurada antes de la primera ejecucion. Detalle: ' +\n    JSON.stringify(respuestaGh.error).slice(0, 300),\n  );\n}\n\n// --- 2. Idempotencia: ¿ya esta esta obra en el archivo? -------------------\nconst doi = String(registro.doi || '').trim().toLowerCase();\nlet yaEstaba = false;\nlet motivoYaEstaba = '';\n\nif (doi && contenido.toLowerCase().includes(doi)) {\n  yaEstaba = true;\n  motivoYaEstaba = 'El DOI ya aparece en referencias.bib';\n}\n\n// --- 3. Resolucion de colision de citation key ----------------------------\n// Se buscan las keys existentes del archivo: @tipo{key,\nconst keysEnArchivo = new Set();\nconst reKeys = /@\\w+\\s*\\{\\s*([^,\\s}]+)\\s*,/g;\nlet m;\nwhile ((m = reKeys.exec(contenido)) !== null) {\n  keysEnArchivo.add(m[1].trim().toLowerCase());\n}\n\nlet keyFinal = registro.citation_key;\nlet entrada = registro.bibtex_entry;\n\nif (!yaEstaba) {\n  const base = registro.citation_key_base || registro.citation_key;\n  let i = 0;\n  keyFinal = registro.citation_key;\n\n  while (keysEnArchivo.has(keyFinal.toLowerCase())) {\n    i += 1;\n    keyFinal = base + sufijo(i);\n    if (i > 200) break;\n  }\n\n  if (keyFinal !== registro.citation_key) {\n    // Reescribe solo la key de la primera linea: \"@article{vieja,\" -> \"@article{nueva,\"\n    entrada = entrada.replace(\n      new RegExp(`^(@\\\\w+\\\\s*\\\\{\\\\s*)${reEscape(registro.citation_key)}(\\\\s*,)`),\n      `$1${keyFinal}$2`,\n    );\n  }\n}\n\n// --- 4. Nuevo contenido ---------------------------------------------------\nlet contenidoNuevo = contenido;\nlet modificado = false;\n\nif (!yaEstaba) {\n  let base = contenido.trim().length ? contenido.replace(/\\s+$/, '') : CABECERA.replace(/\\s+$/, '');\n  contenidoNuevo = `${base}\\n\\n${entrada}\\n`;\n  modificado = true;\n}\n\nreturn [{\n  json: {\n    ...registro,\n\n    // La key final manda para nota, planilla y Telegram\n    citation_key: keyFinal,\n    citation_key_cambio_en_bib: keyFinal !== registro.citation_key,\n    bibtex_entry: entrada,\n\n    bib_existe: archivoExiste,\n    bib_modificado: modificado,\n    bib_ya_contenia: yaEstaba,\n    bib_motivo: motivoYaEstaba,\n    bib_entradas_previas: keysEnArchivo.size,\n\n    // Lo que consume el nodo \"Escribir referencias.bib\"\n    contenido_base64: Buffer.from(contenidoNuevo, 'utf8').toString('base64'),\n    commit_message: yaEstaba\n      ? `bib: sin cambios (${keyFinal} ya estaba)`\n      : `bib: agrega ${keyFinal}`,\n  },\n}];\n"
+      },
+      "id": "bddf6f7e-6bb8-5790-b173-2696d3980489",
+      "name": "Construir bib actualizado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4240,
+        400
+      ],
+      "notes": "Append idempotente + resolucion final de la citation key."
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "REEMPLAZAR_USUARIO_GITHUB",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "REEMPLAZAR_REPO_OVERLEAF",
+          "mode": "name"
+        },
+        "filePath": "referencias.bib",
+        "binaryData": false,
+        "fileContent": "={{ $json.contenido_base64 }}",
+        "commitMessage": "={{ $json.commit_message }}",
+        "additionalParameters": {}
+      },
+      "id": "94f98b89-e347-57a2-9bd2-a324aa176f17",
+      "name": "Escribir referencias.bib",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        4460,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "githubApi": {
+          "id": "REEMPLAZAR",
+          "name": "GitHub Memoria"
+        }
+      },
+      "notes": "El nodo resuelve el SHA solo. El contenido va en base64 para evitar el error 'content is not valid Base64' con acentos y llaves."
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "create",
+        "driveId": "myDrive",
+        "folderId": "default",
+        "title": "={{ $json.nota_titulo }}"
+      },
+      "id": "383998a8-a7ea-5712-9ccc-fe1be1de1eba",
+      "name": "Crear nota",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        4680,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "REEMPLAZAR",
+          "name": "Google Docs Memoria"
+        }
+      },
+      "notes": "folderId 'default' = raiz de Mi unidad. Cambialo por el ID de tu carpeta 'Notas de lectura' para tenerlo ordenado."
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "update",
+        "documentURL": "={{ $json.documentId || $json.id }}",
+        "simple": false,
+        "actionsUi": {
+          "actionFields": [
+            {
+              "object": "text",
+              "action": "insert",
+              "text": "={{ $('Construir bib actualizado').first().json.nota_texto }}"
+            }
+          ]
+        }
+      },
+      "id": "b47043cc-05bb-54c8-a7cb-a84e9fc834bd",
+      "name": "Escribir nota",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        4900,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "REEMPLAZAR",
+          "name": "Google Docs Memoria"
+        }
+      },
+      "notes": "La nota NO lleva la entrada BibTeX: esa vive solo en referencias.bib."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * NODO: \"Preparar fila\"\n * Tipo: Code (n8n-nodes-base.code) — Modo: Run Once for All Items\n *\n * QUE HACE\n *   Emite un item cuyas CLAVES son exactamente los encabezados del consolidado.\n *   Eso permite configurar el nodo Google Sheets con \"Map Automatically\"\n *   (columns.mappingMode = autoMapInputData), que es mucho mas robusto al\n *   importar el workflow que mapear columna por columna: no depende de que\n *   n8n haya cargado el esquema de la planilla.\n *\n *   Encabezados esperados en la fila 1 de la pestana \"Consolidado\",\n *   exactamente con estos nombres y en este orden:\n *\n *     fecha_ingreso | citation_key | tipo | autores | anio | titulo |\n *     publicacion | doi | url | descripcion_breve | capitulo_previsto |\n *     estado | estado_resumen | link_nota\n *\n * ENTRADA:  salida de \"Escribir nota\" (Google Docs)\n * SALIDA:   1 item con las 14 columnas\n */\n\nconst registro = { ...$('Construir bib actualizado').first().json };\n\n// El id del documento sale del nodo que lo creo. Google Docs devuelve\n// documentId; algunas versiones exponen id. Se cubren ambos.\nconst docCreado = $('Crear nota').first().json || {};\nconst documentId = docCreado.documentId || docCreado.id || '';\nconst linkNota = documentId ? `https://docs.google.com/document/d/${documentId}/edit` : '';\n\n// Marca visible en la planilla cuando los metadatos no vienen de Crossref\nconst sufijoManual = registro.metadatos_manuales === 'SI' ? ' [REVISAR METADATOS]' : '';\n\nreturn [{\n  json: {\n    fecha_ingreso: registro.fecha_ingreso || '',\n    citation_key: registro.citation_key || '',\n    tipo: registro.bibtex_tipo || '@misc',\n    autores: registro.autores_texto || '',\n    anio: registro.anio || '',\n    titulo: (registro.titulo || '') + sufijoManual,\n    publicacion: registro.publicacion || '',\n    doi: registro.doi || '',\n    url: registro.url_final || registro.url || '',\n    descripcion_breve: registro.descripcion_breve || '',\n\n    // Se llena a mano cuando decidas en que capitulo la vas a usar\n    capitulo_previsto: '',\n\n    // Valores sugeridos: \"por leer\" / \"leido\" / \"citado\"\n    estado: 'por leer',\n\n    // LISTO | PENDIENTE\n    estado_resumen: registro.estado_resumen || 'PENDIENTE',\n\n    link_nota: linkNota,\n  },\n}];\n"
+      },
+      "id": "f55c41d2-fdfd-596f-8580-a40caedcfc47",
+      "name": "Preparar fila",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5120,
+        400
+      ],
+      "notes": "Emite exactamente las 14 columnas del consolidado."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REEMPLAZAR_ID_DE_LA_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Consolidado",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "2a3d96dc-e42d-591b-89d0-affe2eed1dc6",
+      "name": "Agregar fila consolidado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        5340,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR",
+          "name": "Google Sheets Memoria"
+        }
+      },
+      "notes": "Map Automatically: las claves del item deben calzar con los encabezados de la fila 1 de la pestana Consolidado."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "=Registrado.\n\nCitation key: {{ $('Construir bib actualizado').first().json.citation_key }}\nTipo BibTeX: {{ $('Construir bib actualizado').first().json.bibtex_tipo }}\nResumen: {{ $('Construir bib actualizado').first().json.estado_resumen }}{{ $('Construir bib actualizado').first().json.metadatos_manuales === 'SI' ? '\\n\\nOJO: metadatos sin Crossref, revisalos a mano.' : '' }}\n\nNota: {{ $('Preparar fila').first().json.link_nota }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "839979a9-0bdf-5332-a775-e86deaa95abb",
+      "name": "Confirmar por Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        5560,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "credentials": {
+        "telegramApi": {
+          "id": "REEMPLAZAR",
+          "name": "Telegram Bot Memoria"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 1. Entrada y validacion\nEl bot recibe un link o un DOI suelto.\n**Chat autorizado?** exige que `$env.BIBLIO_TELEGRAM_CHAT_ID`\nsea igual a tu chat id. Falla cerrado.\nEn n8n Cloud reemplaza esa expresion por tu id literal.",
+        "height": 200,
+        "width": 740,
+        "color": 4
+      },
+      "id": "237d0ce9-3568-54eb-84e4-4cbebb29edb3",
+      "name": "Nota entrada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Descarga y lectura\nSe descarga como binario y se decide PDF vs HTML.\nDel HTML se rescatan `citation_doi` y `citation_title`,\nque es como se obtiene el DOI en ScienceDirect / Springer.\nPaywall, 403 o PDF escaneado -> el flujo sigue igual.",
+        "height": 200,
+        "width": 860,
+        "color": 5
+      },
+      "id": "3854b2c7-bdc3-5f0a-aaee-074024274dbd",
+      "name": "Nota lectura",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        60,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. DOI y metadatos\nSin DOI se busca por titulo en Crossref, con un umbral\nde similitud estricto: antes sin DOI que con uno errado.\n**Crossref metadatos** es la unica fuente de autores,\nanio, revista y tipo. El LLM no toca esos campos.",
+        "height": 200,
+        "width": 700,
+        "color": 3
+      },
+      "id": "f839c94c-ef58-5505-8d3c-6e6a0a3db271",
+      "name": "Nota crossref",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        940,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Deduplicacion\nSe leen todas las filas del consolidado ANTES de\nescribir nada y antes de gastar tokens.\nDuplicado por DOI, o por URL normalizada si no hay DOI.\nReenviar el mismo link no duplica nada.",
+        "height": 200,
+        "width": 640,
+        "color": 6
+      },
+      "id": "b9a6527e-88e2-53e1-8ef2-2464701c02a6",
+      "name": "Nota dedupe",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Escritura\n`.bib` en GitHub (read-modify-write con append idempotente),\nnota en Google Docs, fila en Sheets, confirmacion por Telegram.\nLa citation key definitiva la fija **Construir bib actualizado**\ny de ahi la toman la nota, la planilla y el mensaje.",
+        "height": 200,
+        "width": 1100,
+        "color": 7
+      },
+      "id": "5f3817b6-121e-5fc5-9899-e0b09d535411",
+      "name": "Nota escritura",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3980,
+        160
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Chat autorizado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat autorizado?": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignorar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar entrada": {
+      "main": [
+        [
+          {
+            "node": "Hay URL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay URL?": {
+      "main": [
+        [
+          {
+            "node": "Descargar fuente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar fuente": {
+      "main": [
+        [
+          {
+            "node": "Es PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es PDF?": {
+      "main": [
+        [
+          {
+            "node": "Extraer texto PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extraer texto HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer texto PDF": {
+      "main": [
+        [
+          {
+            "node": "Preparar texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer texto HTML": {
+      "main": [
+        [
+          {
+            "node": "Preparar texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar texto": {
+      "main": [
+        [
+          {
+            "node": "Falta DOI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Falta DOI?": {
+      "main": [
+        [
+          {
+            "node": "Crossref buscar por titulo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unificar DOI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crossref buscar por titulo": {
+      "main": [
+        [
+          {
+            "node": "Elegir candidato Crossref",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Elegir candidato Crossref": {
+      "main": [
+        [
+          {
+            "node": "Unificar DOI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unificar DOI": {
+      "main": [
+        [
+          {
+            "node": "Hay DOI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay DOI?": {
+      "main": [
+        [
+          {
+            "node": "Crossref metadatos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalizar metadatos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crossref metadatos": {
+      "main": [
+        [
+          {
+            "node": "Normalizar metadatos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar metadatos": {
+      "main": [
+        [
+          {
+            "node": "Leer consolidado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer consolidado": {
+      "main": [
+        [
+          {
+            "node": "Dedupe y citation key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe y citation key": {
+      "main": [
+        [
+          {
+            "node": "Ya registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ya registrado?": {
+      "main": [
+        [
+          {
+            "node": "Avisar duplicado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hay texto para resumir?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay texto para resumir?": {
+      "main": [
+        [
+          {
+            "node": "Resumir con LLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consolidar registro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resumir con LLM": {
+      "main": [
+        [
+          {
+            "node": "Consolidar registro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo Anthropic": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Resumir con LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formato JSON del resumen": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Resumir con LLM",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar registro": {
+      "main": [
+        [
+          {
+            "node": "Leer referencias.bib",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer referencias.bib": {
+      "main": [
+        [
+          {
+            "node": "Construir bib actualizado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir bib actualizado": {
+      "main": [
+        [
+          {
+            "node": "Escribir referencias.bib",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escribir referencias.bib": {
+      "main": [
+        [
+          {
+            "node": "Crear nota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear nota": {
+      "main": [
+        [
+          {
+            "node": "Escribir nota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escribir nota": {
+      "main": [
+        [
+          {
+            "node": "Preparar fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar fila": {
+      "main": [
+        [
+          {
+            "node": "Agregar fila consolidado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar fila consolidado": {
+      "main": [
+        [
+          {
+            "node": "Confirmar por Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}
