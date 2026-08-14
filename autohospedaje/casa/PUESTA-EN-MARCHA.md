@@ -160,19 +160,91 @@ API key en [console.anthropic.com](https://console.anthropic.com) → *API Keys*
 
 # BLOQUE 3 — Levantar y probar sin dominio (hoy)
 
-## 3.1 Clonar y configurar
+## 3.0 Qué estás a punto de hacer, en cristiano
 
-Por SSH al PC:
+Si no vienes del mundo de servidores, esto te va a ahorrar confusión.
+
+**Docker** es una forma de correr programas que vienen ya empaquetados, sin
+instalarlos ni configurarlos uno por uno. Cada programa corre aislado en lo que
+se llama un **contenedor**: una cajita con todo lo que necesita adentro.
+
+El archivo `docker-compose.yml` de esta carpeta es una **receta** que dice qué
+cajitas levantar y cómo conectarlas. En nuestro caso, tres:
+
+| Contenedor | Qué es |
+|---|---|
+| `postgres` | La base de datos. Guarda tus workflows y credenciales |
+| `n8n` | La aplicación en sí, la que ves en el navegador |
+| `cloudflared` | El túnel que deja que Telegram llegue. **Todavía no**, falta el dominio |
+
+El archivo `.env` es donde van **tus** datos: contraseñas, tu chat de Telegram,
+tu dominio. La receta lo lee al arrancar. Está en `.gitignore`, así que nunca se
+sube a GitHub.
+
+O sea que todo el trabajo se reduce a: bajar la receta, escribir tus datos en el
+`.env`, y decirle a Docker que levante las cajitas.
+
+**Dónde escribes esto:** en la terminal de **Ubuntu** (menú inicio → Ubuntu),
+**no** en PowerShell. Docker Desktop corre en Windows, pero tú le hablas desde
+Ubuntu — eso es lo que activaste con el interruptor de *WSL Integration*.
+
+## 3.1 Bajar el proyecto
+
+Abre **Ubuntu** y escribe:
 
 ```bash
+cd ~
 git clone https://github.com/imboqqentt/Bibliografia_IA.git
 cd Bibliografia_IA/autohospedaje/casa
+```
 
+Qué hizo cada línea:
+
+- `cd ~` te lleva a tu carpeta personal dentro de Ubuntu. **Importante**: no uses
+  `/mnt/c/...` (el disco de Windows), ahí Docker anda mucho más lento.
+- `git clone` descarga el proyecto desde GitHub.
+- `cd` entra a la carpeta de la configuración para PC de casa.
+
+Para confirmar que estás en el lugar correcto:
+
+```bash
+ls
+```
+
+Tienes que ver `docker-compose.yml`, `.env.example`, `README.md` y
+`PUESTA-EN-MARCHA.md`.
+
+## 3.2 Preparar tus datos
+
+```bash
 cp .env.example .env
-openssl rand -hex 32       # -> N8N_ENCRYPTION_KEY
-openssl rand -base64 24    # -> POSTGRES_PASSWORD
+```
+
+`cp` copia. Acabas de crear tu `.env` personal a partir de la plantilla.
+
+Ahora genera las dos claves. **Copia lo que imprima cada comando** — las vas a
+pegar en un momento:
+
+```bash
+openssl rand -hex 32
+openssl rand -base64 24
+```
+
+La primera es la clave con la que n8n cifra tus credenciales. La segunda es la
+contraseña de la base de datos. Son solo texto aleatorio; no tienes que
+memorizarlas ni entenderlas.
+
+Ahora abre el archivo para editarlo:
+
+```bash
 nano .env
 ```
+
+> **Cómo se usa nano**, porque acá se atasca todo el mundo la primera vez:
+> te mueves con las flechas (el mouse no sirve), escribes normal, y al terminar:
+> **Ctrl+O** y Enter para guardar, después **Ctrl+X** para salir.
+> En la terminal de Ubuntu de Windows, **pegar es con clic derecho** o
+> Ctrl+Shift+V.
 
 Completa por ahora sólo estas cuatro:
 
@@ -188,34 +260,62 @@ Completa por ahora sólo estas cuatro:
 > **Guarda la `N8N_ENCRYPTION_KEY` en tu gestor de contraseñas**, además del
 > `.env`. Sin ella, un respaldo de la base no te devuelve las credenciales.
 
-## 3.2 Levantar sólo lo que ya funciona
+## 3.3 Encender
 
-`cloudflared` sin token se reiniciaría en bucle, así que por ahora lo dejamos
-fuera:
+Asegúrate de que **Docker Desktop esté abierto** (ícono de la ballena en la
+barra de tareas, en verde). Si no lo está, los comandos van a fallar con
+`Cannot connect to the Docker daemon`.
 
 ```bash
 docker compose up -d postgres n8n
+```
+
+Desglose:
+
+- `docker compose` lee la receta de esta carpeta.
+- `up` significa "levanta esto".
+- `-d` es *detached*: queda corriendo en segundo plano y te devuelve la terminal.
+- `postgres n8n` limita a esos dos contenedores. **Dejamos `cloudflared` fuera a
+  propósito**: sin el token del túnel se reiniciaría en bucle. Lo sumamos en el
+  bloque 5.
+
+> **La primera vez tarda varios minutos** porque descarga las imágenes (unos
+> 500 MB). Vas a ver muchas barras de progreso. **No lo interrumpas** aunque
+> parezca detenido. Las veces siguientes arranca en segundos.
+
+Cuando termine, revisa que estén arriba:
+
+```bash
+docker compose ps
+```
+
+Tienes que ver los dos con estado `running`, y `postgres` además como `healthy`.
+
+Y para ver qué está haciendo n8n por dentro:
+
+```bash
 docker compose logs -f n8n
 ```
 
-Espera a ver `Editor is now accessible via...`.
+Espera la línea `Editor is now accessible via...`. **Sal con Ctrl+C** — eso
+cierra el visor de mensajes, *no* apaga n8n.
 
-## 3.3 Entrar desde el notebook
+## 3.4 Abrir n8n
 
-n8n publica su puerto **sólo en el propio PC** (`127.0.0.1`), así que desde el
-notebook llegas con un túnel SSH. En **otra terminal de tu notebook**:
+Como estás trabajando en el mismo PC, simplemente abre el navegador en:
 
-```bash
-ssh -L 5678:localhost:5678 tuusuario@192.168.1.x
-```
+**http://localhost:5678**
 
-Deja esa terminal abierta y abre `http://localhost:5678` en tu navegador.
+La primera vez te pide crear una cuenta de dueño de la instancia: correo y
+contraseña. **Es local, tuya, no se registra en ningún servicio.** Anótala.
 
-Crea el usuario dueño de la instancia (correo y clave, es local).
+> Si más adelante quieres entrar desde el notebook sin exponer nada, se hace con
+> un túnel SSH — está en §5 del [README de esta carpeta](README.md). Mientras
+> trabajes en el propio PC no lo necesitas.
 
-**Anota la versión de n8n:** `Help → About`.
+**Anota la versión de n8n:** menú `Help → About`.
 
-## 3.4 Importar y conectar
+## 3.5 Importar y conectar
 
 1. Abre `workflow.json` del repo, copia todo y pega con **Ctrl+V** en el canvas.
 2. Conecta las credenciales **por etapas**, no todas de golpe:
@@ -225,7 +325,7 @@ Crea el usuario dueño de la instancia (correo y clave, es local).
    - GitHub → completa `owner` y `repository` en los dos nodos
    - Google Docs → ajusta `folderId` si quieres carpeta propia
 
-## 3.5 Probar el flujo entero, sin webhook
+## 3.6 Probar el flujo entero, sin webhook
 
 Acá está la parte que mucha gente no sabe que se puede.
 
