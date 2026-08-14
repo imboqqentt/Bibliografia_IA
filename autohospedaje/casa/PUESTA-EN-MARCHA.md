@@ -32,6 +32,22 @@ el túnel: diez minutos, no una tarde.
 
 # BLOQUE 1 — El PC (hoy)
 
+## 1.0 Decide primero: formatear o no
+
+| | Ubuntu Server | El Windows que ya tiene |
+|---|---|---|
+| El PC queda | Dedicado al servidor | Igual que ahora |
+| Vuelve solo tras un reinicio | **Siempre** | Sólo con inicio de sesión automático |
+| Trabajo | Reinstalar el sistema | Media hora |
+
+Si el PC está de verdad en desuso, **Ubuntu Server** y sigues con 1.1.
+
+Si prefieres no tocarlo, es perfectamente viable: sigue **§1.3 del
+[README de autohospedaje](../README.md)** (Docker Desktop sobre WSL2 más el
+inicio de sesión automático) y vuelve acá directo al **bloque 2**. El resto de
+la guía es idéntico; sólo cambia que trabajas desde la terminal de Ubuntu de
+WSL en vez de por SSH.
+
 ## 1.1 Instalar Ubuntu Server
 
 **Ubuntu Server, no Desktop.** El escritorio se come 1–2 GB de RAM dibujando

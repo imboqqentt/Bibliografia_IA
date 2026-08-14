@@ -211,7 +211,25 @@ supone al usar algo que ya tiene.
 - Conexión por cable al router, idealmente. El WiFi se cae más seguido y aquí
   la disponibilidad es todo el punto.
 
-#### Instalación
+#### Dos caminos: formatear o no formatear
+
+Antes de la instalación hay que decidir esto, porque cambia todo lo demás.
+
+| | Ubuntu Server (formatear) | Windows que ya tiene |
+|---|---|---|
+| El PC queda | Dedicado al servidor | Igual que ahora, lo sigues usando |
+| Arranca solo tras reinicio | **Sí, siempre** | Sólo con inicio de sesión automático |
+| RAM que consume el sistema | ~400 MB | ~2–3 GB |
+| Trabajo de instalación | Reinstalar el sistema | Casi ninguno |
+
+**Si el PC de verdad está en desuso** y no vas a perder nada, Ubuntu Server es
+mejor: arranca solo, consume menos y no pelea con Windows Update.
+
+**Si prefieres no tocarlo** —hay archivos que quieres conservar, lo comparte
+alguien más, o simplemente no quieres arriesgar—, se puede perfectamente. Salta
+a §1.3.
+
+#### Instalación (camino Ubuntu Server)
 
 **Instala Ubuntu Server, no Ubuntu Desktop.** El escritorio se come 1–2 GB de
 RAM en dibujar una pantalla que nunca vas a mirar. Descarga *Ubuntu Server LTS*
@@ -272,6 +290,97 @@ Una vez que ande y accedas sólo por SSH, **desconecta el monitor** y, si el
 equipo tiene tarjeta de video dedicada que no necesitas, sácala y usa el video
 integrado. Una GPU antigua puede estar consumiendo 15–20 W sin hacer nada, que
 son $1.500–$2.000 al mes tirados a la basura.
+
+---
+
+### 1.3 Servidor sobre el Windows que ya tiene, sin formatear
+
+Sí se puede, y para una herramienta de bibliografía es perfectamente razonable.
+Es el mismo Docker Desktop sobre WSL2 de §1.1: instálalo en el PC de escritorio
+siguiendo esos pasos y después vuelve acá para los ajustes de 24/7.
+
+#### El único problema de fondo
+
+**Docker Desktop necesita una sesión de Windows iniciada para funcionar.** No es
+un ajuste que se pueda cambiar: es cómo está construido. La
+[documentación de Docker](https://docs.docker.com/desktop/setup/install/windows-permission-requirements/)
+lo indica, y por eso Docker mismo desaconseja Docker Desktop para servidores.
+
+La consecuencia práctica: si Windows se reinicia solo por una actualización a
+las 3 de la mañana, **los contenedores no vuelven a levantarse hasta que alguien
+inicie sesión**. El bot queda mudo hasta que llegues al PC.
+
+#### La solución: inicio de sesión automático
+
+Windows arranca directo al escritorio, Docker Desktop parte con la sesión, y los
+contenedores vuelven solos.
+
+1. `Win + R` → `netplwiz` → Enter.
+2. Selecciona tu usuario y **desmarca** *"Los usuarios deben escribir su nombre
+   y contraseña para usar el equipo"*.
+3. Aplicar → te pide la contraseña dos veces para guardarla.
+
+> Si esa casilla no aparece (pasa cuando el equipo tiene Windows Hello activo),
+> desactiva primero **Configuración → Cuentas → Opciones de inicio de sesión →
+> "Exigir Windows Hello para cuentas Microsoft"**.
+
+**El costo, dicho claro:** el PC arranca a un escritorio desbloqueado y la
+contraseña queda guardada en el registro. En un equipo doméstico que además está
+detrás de un túnel sin puertos abiertos, es un riesgo bajo y aceptable. En un
+equipo con cosas sensibles, o al que tiene acceso gente que no conoces, no lo
+haría — ahí conviene Ubuntu Server, que arranca sus servicios sin que nadie
+inicie sesión.
+
+#### Los otros tres ajustes
+
+**1. Docker Desktop tiene que arrancar con la sesión.**
+*Settings → General →* marca **Start Docker Desktop when you sign in**.
+
+**2. Windows no debe suspenderse.**
+*Configuración → Sistema → Inicio/apagado* → pon **Suspender: Nunca** tanto para
+pantalla como para el equipo. Ojo: apagar la pantalla está bien; suspender el
+equipo mata el servidor.
+
+**3. El encendido tras corte de luz sigue siendo la BIOS.**
+El ajuste *Restore on AC Power Loss* de §1.2 aplica igual. Windows no puede
+encenderse solo si el equipo está sin energía.
+
+#### Windows Update
+
+Es lo que menos control te deja. Puedes acotarlo en *Configuración → Windows
+Update → Opciones avanzadas*:
+
+- **Horas activas**: define un rango amplio para que no reinicie mientras
+  trabajas.
+- **Pausar actualizaciones** si vas a estar en una semana crítica de la memoria.
+
+Con el inicio de sesión automático configurado, un reinicio por actualización se
+recupera solo en un par de minutos. Sin él, queda caído hasta que vuelvas.
+
+#### Los respaldos son distintos
+
+En Windows no hay `cron`. Dos opciones:
+
+- **Desde WSL:** abre Ubuntu y usa `crontab -e` igual que en Linux, pero el cron
+  de WSL sólo corre mientras la distro esté levantada. Como Docker Desktop la
+  mantiene arriba, en la práctica funciona.
+- **Con el Programador de tareas de Windows** (más confiable): crea una tarea que
+  ejecute
+  `wsl -d Ubuntu -e bash -lc "cd ~/Bibliografia_IA/autohospedaje/casa && docker compose exec -T postgres pg_dump -U n8n n8n | gzip > ~/respaldos/n8n-$(date +\%F).sql.gz"`
+
+#### Cuándo esto es buena idea y cuándo no
+
+A favor: no formateas nada, sigues usando el PC, y la instalación es media hora.
+
+En contra: unos 2–3 GB de RAM se van en Windows, y dependes del inicio de sesión
+automático para sobrevivir los reinicios.
+
+Para lo que estamos haciendo, es aceptable: el flujo corre unas 30 veces al mes
+y no pasa nada si el bot está caído unas horas — mandas el link más tarde. Esto
+no es un sistema de pagos.
+
+Si en algún momento te molesta la fragilidad, migrar a Ubuntu Server después es
+respaldar el volumen y restaurarlo (§5). No pierdes el trabajo hecho.
 
 ---
 
