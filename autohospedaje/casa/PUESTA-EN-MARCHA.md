@@ -149,8 +149,8 @@ API key en [console.anthropic.com](https://console.anthropic.com) → *API Keys*
 Por SSH al PC:
 
 ```bash
-git clone https://github.com/imboqqentt/bibliografia-memoria.git
-cd bibliografia-memoria/autohospedaje/casa
+git clone https://github.com/imboqqentt/Bibliografia_IA.git
+cd Bibliografia_IA/autohospedaje/casa
 
 cp .env.example .env
 openssl rand -hex 32       # -> N8N_ENCRYPTION_KEY
@@ -342,7 +342,7 @@ En el mismo túnel, **Public Hostnames → Add a public hostname**:
 ## 5.3 Completar el `.env` y levantar todo
 
 ```bash
-cd ~/bibliografia-memoria/autohospedaje/casa
+cd ~/Bibliografia_IA/autohospedaje/casa
 nano .env
 ```
 
@@ -408,7 +408,7 @@ Y la prueba de seguridad: pídele a alguien que le escriba al bot. Esperado:
 # BLOQUE 7 — Respaldo (mismo día, no lo dejes para después)
 
 ```bash
-cd ~/bibliografia-memoria/autohospedaje/casa
+cd ~/Bibliografia_IA/autohospedaje/casa
 mkdir -p ~/respaldos
 docker compose exec -T postgres pg_dump -U n8n n8n | gzip > ~/respaldos/n8n-$(date +%F).sql.gz
 ```
@@ -424,7 +424,7 @@ Un respaldo que vive en la misma máquina que respalda no es un respaldo.
 Para automatizarlo cada domingo, `crontab -e`:
 
 ```cron
-0 3 * * 0 cd ~/bibliografia-memoria/autohospedaje/casa && docker compose exec -T postgres pg_dump -U n8n n8n | gzip > ~/respaldos/n8n-$(date +\%F).sql.gz
+0 3 * * 0 cd ~/Bibliografia_IA/autohospedaje/casa && docker compose exec -T postgres pg_dump -U n8n n8n | gzip > ~/respaldos/n8n-$(date +\%F).sql.gz
 ```
 
 (En cron los `%` van escapados como `\%`.)

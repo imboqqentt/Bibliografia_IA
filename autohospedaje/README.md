@@ -122,7 +122,7 @@ falta el interruptor del paso 2.
 
 ```bash
 cd ~                       # /home/tuusuario, dentro de Ubuntu
-git clone https://github.com/imboqqentt/bibliografia-memoria.git
+git clone https://github.com/imboqqentt/Bibliografia_IA.git
 ```
 
 Si clonas en `/mnt/c/Users/...` (o sea, en el disco de Windows), Docker anda
@@ -130,7 +130,7 @@ mucho más lento y aparecen problemas de permisos en los volúmenes. La carpeta
 `~` de Ubuntu es la correcta.
 
 Para abrirla desde el Explorador de Windows cuando la necesites:
-`\\wsl$\Ubuntu\home\tuusuario\bibliografia-memoria`
+`\\wsl$\Ubuntu\home\tuusuario\Bibliografia_IA`
 
 **2. No edites los archivos con el Bloc de notas ni con editores de Windows.**
 

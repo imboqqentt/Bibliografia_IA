@@ -149,8 +149,8 @@ En el panel de Cloudflare: **Zero Trust → Networks → Tunnels → Create a tu
 En el PC, por SSH:
 
 ```bash
-git clone https://github.com/imboqqentt/bibliografia-memoria.git
-cd bibliografia-memoria/autohospedaje/casa
+git clone https://github.com/imboqqentt/Bibliografia_IA.git
+cd Bibliografia_IA/autohospedaje/casa
 
 cp .env.example .env
 openssl rand -hex 32       # -> N8N_ENCRYPTION_KEY
@@ -251,7 +251,7 @@ un respaldo. Cópialos a tu notebook o súbelos a Drive.
 Para automatizarlo semanalmente, `crontab -e`:
 
 ```cron
-0 3 * * 0 cd ~/bibliografia-memoria/autohospedaje/casa && docker compose exec -T postgres pg_dump -U n8n n8n | gzip > ~/respaldos/n8n-$(date +\%F).sql.gz
+0 3 * * 0 cd ~/Bibliografia_IA/autohospedaje/casa && docker compose exec -T postgres pg_dump -U n8n n8n | gzip > ~/respaldos/n8n-$(date +\%F).sql.gz
 ```
 
 (En cron los `%` van escapados como `\%`.)
