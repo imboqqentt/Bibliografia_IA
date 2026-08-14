@@ -35,13 +35,81 @@ Tres consecuencias prácticas:
 
 ## 1. Dominio en Cloudflare
 
-Necesitas un dominio con el DNS administrado por Cloudflare. Cualquiera barato
-sirve.
+### El requisito, y lo que NO sirve
+
+Necesitas un **dominio propio cuyos nameservers puedas apuntar a Cloudflare**.
+Esa condición descarta las opciones "gratis" más conocidas:
+
+- **DuckDNS, No-IP y similares no sirven.** Te dan un subdominio
+  (`loquesea.duckdns.org`), pero la zona DNS es de ellos, no tuya. Cloudflare
+  Tunnel necesita que el dominio esté administrado en tu cuenta de Cloudflare,
+  y para eso tienes que poder delegar los nameservers. Con un subdominio ajeno
+  no puedes.
+- Lo mismo con los "dominio gratis incluido" de algunos hostings, si no te
+  dejan cambiar los nameservers.
+
+### Opción A — GitHub Student Developer Pack (gratis, empieza por acá)
+
+Estás matriculado en un programa que otorga título, así que calificas.
+[education.github.com/pack](https://education.github.com/pack)
+
+Incluye, entre muchas otras cosas:
+
+- **Namecheap:** un dominio `.me` gratis por un año, con certificado SSL.
+- **Name.com:** un dominio gratis a elegir entre más de 25 extensiones
+  (`.live`, `.studio`, `.software`, `.app`, `.dev`, entre otras).
+
+Los dos permiten cambiar los nameservers a Cloudflare, que es lo que
+necesitamos. La verificación pide correo institucional o documentación de
+matrícula, y puede tardar un par de días.
+
+> **Ojo con el año dos.** Es gratis el primer año; la renovación se paga a
+> precio normal. Para una memoria que dura menos de eso, perfecto. Si después
+> quieres conservarlo, presupuéstalo o migra a algo más barato.
+
+### Opción B — Dominio `.cl` en NIC Chile
+
+[nic.cl](https://www.nic.cl) — unos **$9.940 + IVA al año**, con descuento si
+contratas varios años de una.
+
+Más caro que un `.xyz` en oferta, pero el precio es estable: no tiene la trampa
+del "primer año a $1.000 y renovación a $15.000" que usan varias registradoras
+internacionales. Permite cambiar los nameservers a Cloudflare sin problema.
+
+### Opción C — Registrar barato
+
+Namecheap, Porkbun o Cloudflare Registrar. Extensiones como `.xyz` o `.site`
+suelen salir muy barato el primer año.
+
+> **Revisa el precio de RENOVACIÓN, no el de registro.** Es donde está el
+> truco: muchas ofertas de primer año a menos de mil pesos renuevan sobre los
+> quince mil.
+
+Cloudflare Registrar tiene la ventaja de que vende a precio de costo y el
+dominio ya queda dentro de Cloudflare, así que te saltas el paso siguiente.
+
+### Apuntar el dominio a Cloudflare
+
+Salvo que lo hayas registrado directamente en Cloudflare:
 
 1. Crea la cuenta en [cloudflare.com](https://cloudflare.com) y agrega tu
-   dominio (*Add a site*).
-2. Cambia los nameservers de tu dominio a los que te indique Cloudflare, en el
-   panel de donde lo compraste. Puede tardar unas horas en propagar.
+   dominio con *Add a site*. El plan gratuito basta.
+2. Cloudflare te muestra **dos nameservers** (algo como `xxx.ns.cloudflare.com`).
+3. Entra al panel de donde compraste el dominio, busca *Nameservers* o
+   *Servidores DNS* y reemplaza los que estén por esos dos.
+4. Espera. La propagación suele tomar entre unos minutos y unas horas.
+   Cloudflare te manda un correo cuando el dominio queda activo.
+
+Para verificar desde tu notebook:
+
+```bash
+dig +short NS tudominio.cl
+```
+
+Cuando responda con los nameservers de Cloudflare, sigue al paso 2.
+
+> Aprovecha ese tiempo de espera para instalar Ubuntu Server en el PC y dejar
+> Docker listo. Ver §1.2 del [README de autohospedaje](../README.md).
 
 ---
 

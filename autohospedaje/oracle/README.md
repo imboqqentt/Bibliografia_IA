@@ -100,7 +100,11 @@ Tipo   Nombre   Valor
 A      n8n      <IP pública de tu instancia>
 ```
 
-Sirve cualquier dominio barato. Si usas Cloudflare como DNS, deja el registro
+Para conseguir el dominio (incluida la opcion gratuita del GitHub Student
+Developer Pack, y por que DuckDNS y similares no sirven), ver el paso 1 de
+[casa/README.md](../casa/README.md#1-dominio-en-cloudflare).
+
+Si usas Cloudflare como DNS, deja el registro
 en **DNS only** (nube gris) mientras Caddy pide el certificado; después puedes
 activar el proxy si quieres.
 
