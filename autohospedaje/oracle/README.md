@@ -121,8 +121,8 @@ sudo usermod -aG docker $USER
 newgrp docker
 
 # Este repositorio
-git clone <tu-repo> memoria
-cd memoria/n8n/bibliografia-memoria/autohospedaje/oracle
+git clone https://github.com/imboqqentt/bibliografia-memoria.git
+cd bibliografia-memoria/autohospedaje/oracle
 
 cp .env.example .env
 openssl rand -hex 32      # -> N8N_ENCRYPTION_KEY

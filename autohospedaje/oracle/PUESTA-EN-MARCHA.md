@@ -159,8 +159,8 @@ docker --version && docker compose version
 Ambos comandos deben responder con una versión.
 
 ```bash
-git clone <URL_DE_TU_REPO> memoria
-cd memoria/n8n/bibliografia-memoria/autohospedaje/oracle
+git clone https://github.com/imboqqentt/bibliografia-memoria.git
+cd bibliografia-memoria/autohospedaje/oracle
 ```
 
 ### Configurar el `.env`
@@ -331,7 +331,7 @@ docker compose exec -T postgres pg_dump -U n8n n8n | gzip > n8n-db-$(date +%F).s
 Baja ese archivo a tu notebook:
 
 ```bash
-scp ubuntu@<IP>:~/memoria/n8n/bibliografia-memoria/autohospedaje/oracle/n8n-db-*.sql.gz .
+scp ubuntu@<IP>:~/bibliografia-memoria/autohospedaje/oracle/n8n-db-*.sql.gz .
 ```
 
 - [ ] Respaldo hecho y **fuera** de la instancia

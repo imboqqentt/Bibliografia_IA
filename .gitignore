@@ -1,0 +1,7 @@
+# Archivos locales de despliegue
+.env
+*.tar.gz
+*.sql.gz
+
+# Respaldos
+respaldos/

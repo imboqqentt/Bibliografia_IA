@@ -24,6 +24,7 @@ Nunca escribe un autor, un año, una revista ni un tipo de publicación.
 
 | Archivo | Qué es |
 |---|---|
+| `autohospedaje/` | Cómo y dónde correr n8n: notebook, PC de casa, Raspberry, VPS |
 | `workflow.json` | El flujo completo, listo para importar con Ctrl+V en el canvas de n8n |
 | `code/*.js` | El código de los 8 nodos Code, comentado, en archivos separados |
 | `build_workflow.py` | Regenera `workflow.json` inyectando los `code/*.js`. Se corre tras editar el JS |
@@ -130,10 +131,12 @@ En el `.tex` necesitas, como siempre:
 \bibliography{referencias}
 ```
 
-> **¿Autohospedado?** Si vas a correr n8n en tu propio hardware (notebook o
-> Raspberry) en vez de n8n Cloud, la guía está en
-> [`autohospedaje/README.md`](autohospedaje/README.md), con el `docker-compose.yml`
-> ya configurado y el paso a paso del túnel para que Telegram te alcance.
+> **¿Dónde vas a correr n8n?** La carpeta
+> [`autohospedaje/`](autohospedaje/) tiene una variante por situación de red:
+> [`casa/`](autohospedaje/casa/) para un PC doméstico detrás de CGNAT
+> (PostgreSQL + Cloudflare Tunnel), [`oracle/`](autohospedaje/oracle/) para un
+> VPS con IP pública (PostgreSQL + Caddy), y la raíz de `autohospedaje/` para
+> el notebook mientras armas y depuras.
 
 > Si no tienes Overleaf de pago: puedes clonar el repo localmente y subir el `.bib`
 > a mano cada cierto tiempo, o cambiar los dos nodos GitHub por nodos Google Drive
