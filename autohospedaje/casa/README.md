@@ -3,6 +3,11 @@
 Despliegue con **PostgreSQL + Cloudflare Tunnel**, para un equipo doméstico
 detrás de una conexión residencial.
 
+> **¿Lo vas a instalar ahora?** Sigue
+> [PUESTA-EN-MARCHA.md](PUESTA-EN-MARCHA.md): la misma información ordenada por
+> tiempo, en siete bloques, pensada para avanzar sin esperar el dominio. Este
+> README es la referencia por tema.
+
 Para el hardware (Ubuntu Server, arranque automático tras corte de luz, evitar
 la suspensión, consumo eléctrico) mira **§1.2 del [README de autohospedaje](../README.md)**.
 Esta guía cubre sólo la parte de red y despliegue.
@@ -188,28 +193,40 @@ docker compose logs -f cloudflared
 
 ---
 
-## 5. Acceso desde tu red local
+## 5. Acceso local, sin pasar por internet
 
-n8n no publica puertos al host a propósito: sólo el túnel llega a él. Entras
-siempre por `https://n8n.tudominio.cl`, incluso estando en tu casa.
-
-Si prefieres además poder entrar por la red local, agrégale al servicio `n8n`
-del compose:
+El compose publica el puerto de n8n así:
 
 ```yaml
     ports:
       - "127.0.0.1:5678:5678"
 ```
 
-El `127.0.0.1:` de adelante importa: deja el puerto accesible **sólo desde el
-propio PC**, no desde el resto de tu red. Desde tu notebook llegas con un túnel
-SSH:
+El `127.0.0.1:` de adelante es lo que importa: deja el puerto accesible **sólo
+desde el propio PC**, no desde el resto de tu red. Ni otro computador de la
+casa ni un dispositivo comprometido en tu WiFi pueden llegar a n8n por ahí.
 
-```bash
-ssh -L 5678:localhost:5678 tuusuario@<ip-local-del-pc>
-```
+Sirve para dos cosas:
 
-y abres `http://localhost:5678`.
+- **Trabajar antes de tener el dominio.** Puedes levantar sólo `postgres` y
+  `n8n`, importar el flujo y probarlo entero mucho antes de que exista el túnel:
+
+  ```bash
+  docker compose up -d postgres n8n
+  ```
+
+  (`cloudflared` sin token se reiniciaría en bucle, por eso se deja fuera.)
+
+- **Administrar desde el notebook** sin exponer nada, con un túnel SSH:
+
+  ```bash
+  ssh -L 5678:localhost:5678 tuusuario@<ip-local-del-pc>
+  ```
+
+  Deja esa terminal abierta y abre `http://localhost:5678` en tu navegador.
+
+El acceso desde internet —el que necesita Telegram— lo da el túnel de
+Cloudflare, no este puerto.
 
 ---
 

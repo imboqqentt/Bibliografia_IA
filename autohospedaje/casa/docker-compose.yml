@@ -95,11 +95,19 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
 
-    # n8n NO publica puertos al host. Solo el tunel llega a el, por la red
-    # interna de Docker. Asi tu n8n no queda expuesto ni siquiera dentro de tu
-    # propia red local.
-    expose:
-      - "5678"
+    # El "127.0.0.1:" de adelante es lo importante: publica el puerto SOLO en
+    # el propio PC, no en la red local. Nadie mas en tu casa (ni un dispositivo
+    # comprometido en tu WiFi) puede llegar a n8n por aca.
+    #
+    # Sirve para dos cosas:
+    #   - trabajar antes de tener el dominio y el tunel andando;
+    #   - entrar despues desde el notebook con un tunel SSH:
+    #       ssh -L 5678:localhost:5678 usuario@<ip-local-del-pc>
+    #     y abrir http://localhost:5678
+    #
+    # El acceso desde internet lo da el tunel de Cloudflare, no este puerto.
+    ports:
+      - "127.0.0.1:5678:5678"
 
   cloudflared:
     image: cloudflare/cloudflared:latest
