@@ -28,6 +28,7 @@ Nunca escribe un autor, un año, una revista ni un tipo de publicación.
 | `code/*.js` | El código de los 8 nodos Code, comentado, en archivos separados |
 | `build_workflow.py` | Regenera `workflow.json` inyectando los `code/*.js`. Se corre tras editar el JS |
 | `test/harness.js` | Banco de pruebas de los nodos Code, ejecutable fuera de n8n (`node test/harness.js`) |
+| `test/telegram-pin-ejemplos.json` | Mensajes de Telegram falsos para probar el flujo sin webhook público |
 | `SUPUESTOS.md` | Supuestos tomados y lo que probablemente tengas que ajustar a mano |
 
 Si editas un archivo de `code/`, corre `python3 build_workflow.py` para regenerar el JSON,
@@ -218,6 +219,33 @@ node test/harness.js
 Corre los 8 nodos Code contra datos reales de Crossref y verifica el escapado LaTeX,
 el mapeo de tipos, la deduplicación, la generación de citation keys y el append
 idempotente al `.bib`. Debe terminar con *Todas las comprobaciones pasaron*.
+
+### Prueba 0.5 — el flujo entero, sin webhook público
+
+Sirve mientras todavía no tienes el dominio ni el túnel funcionando: el webhook
+público sólo hace falta para que **Telegram despierte el flujo solo**. Todo lo
+demás —Crossref, deduplicación, resumen, `.bib`, nota y planilla— se puede
+probar de inmediato usando datos fijados.
+
+En n8n:
+
+1. Abre el nodo **Telegram Trigger**.
+2. En el panel de salida (OUTPUT), presiona el ícono de **chincheta**
+   (*Pin data*) y después **Edit Output**.
+3. Pega uno de los casos de
+   [`test/telegram-pin-ejemplos.json`](test/telegram-pin-ejemplos.json)
+   — sólo el objeto, sin la clave que lo nombra.
+4. **Cambia los `id` de `from` y `chat` por tu chat\_id real**, o el nodo
+   *Chat autorizado?* va a cortar el flujo (que es exactamente lo que debe
+   hacer).
+5. Presiona **Execute Workflow**.
+
+El flujo corre completo como si el mensaje hubiera llegado de verdad: escribe
+en el `.bib`, crea la nota y agrega la fila. Los cuatro casos del archivo
+cubren artículo con DOI, DOI suelto, página sin DOI y chat no autorizado.
+
+> **Quita el pin cuando termines.** Con la chincheta puesta, el flujo sigue
+> usando ese mensaje falso en vez de los que lleguen de verdad.
 
 ### Prueba 1 — artículo con DOI en el link (camino feliz)
 

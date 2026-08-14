@@ -1,0 +1,105 @@
+{
+  "_como_usar": [
+    "Estos son mensajes de Telegram falsos, con la misma forma que entrega el nodo",
+    "Telegram Trigger. Sirven para probar el flujo COMPLETO sin tener el webhook",
+    "publico funcionando todavia.",
+    "",
+    "En n8n:",
+    "  1. Abre el nodo 'Telegram Trigger'.",
+    "  2. En el panel OUTPUT, presiona el icono de chincheta (Pin data) y luego",
+    "     'Edit Output'.",
+    "  3. Pega UNO de los objetos de 'casos' de abajo (solo el objeto, sin la",
+    "     clave que lo nombra).",
+    "  4. Cierra y presiona 'Execute Workflow'. El flujo corre entero como si",
+    "     el mensaje hubiera llegado de verdad.",
+    "",
+    "IMPORTANTE: cambia los 'id' de 'from' y 'chat' por TU chat_id real. El nodo",
+    "'Chat autorizado?' los compara contra BIBLIO_TELEGRAM_CHAT_ID y, si no",
+    "calzan, el flujo se corta ahi (que es justo lo que tiene que hacer).",
+    "",
+    "Cuando termines de probar, ACUERDATE DE QUITAR EL PIN, o el flujo va a",
+    "seguir usando este mensaje falso en vez de los reales."
+  ],
+
+  "casos": {
+    "1_articulo_con_doi": {
+      "update_id": 100000001,
+      "message": {
+        "message_id": 1,
+        "from": {
+          "id": 123456789,
+          "is_bot": false,
+          "first_name": "Daniel",
+          "language_code": "es"
+        },
+        "chat": {
+          "id": 123456789,
+          "first_name": "Daniel",
+          "type": "private"
+        },
+        "date": 1786000000,
+        "text": "https://doi.org/10.1016/j.applthermaleng.2019.114301"
+      }
+    },
+
+    "2_doi_suelto": {
+      "update_id": 100000002,
+      "message": {
+        "message_id": 2,
+        "from": {
+          "id": 123456789,
+          "is_bot": false,
+          "first_name": "Daniel",
+          "language_code": "es"
+        },
+        "chat": {
+          "id": 123456789,
+          "first_name": "Daniel",
+          "type": "private"
+        },
+        "date": 1786000100,
+        "text": "10.1115/1.4048253"
+      }
+    },
+
+    "3_pagina_sin_doi": {
+      "update_id": 100000003,
+      "message": {
+        "message_id": 3,
+        "from": {
+          "id": 123456789,
+          "is_bot": false,
+          "first_name": "Daniel",
+          "language_code": "es"
+        },
+        "chat": {
+          "id": 123456789,
+          "first_name": "Daniel",
+          "type": "private"
+        },
+        "date": 1786000200,
+        "text": "https://www.skf.com/cl/products/rolling-bearings | Catalogo de rodamientos SKF"
+      }
+    },
+
+    "4_chat_no_autorizado": {
+      "update_id": 100000004,
+      "message": {
+        "message_id": 4,
+        "from": {
+          "id": 999999999,
+          "is_bot": false,
+          "first_name": "Desconocido",
+          "language_code": "en"
+        },
+        "chat": {
+          "id": 999999999,
+          "first_name": "Desconocido",
+          "type": "private"
+        },
+        "date": 1786000300,
+        "text": "https://doi.org/10.1016/j.rser.2020.110464"
+      }
+    }
+  }
+}
