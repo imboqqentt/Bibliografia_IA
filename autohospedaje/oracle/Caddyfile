@@ -5,6 +5,25 @@
 #   - los puertos 80 y 443 deben estar abiertos en la Security List de Oracle
 #     Y en el iptables de la maquina (ver README, es el tropiezo clasico).
 
+# ---------------------------------------------------------------------------
+# MODO PRUEBA (opcional, pero recomendado en el primer intento)
+#
+# Let's Encrypt permite solo 5 validaciones FALLIDAS por hostname por hora.
+# Si levantas esto con el DNS a medio propagar o los puertos cerrados, quemas
+# los 5 intentos y quedas esperando (se recupera 1 cada 12 minutos).
+#
+# Para ensayar sin arriesgar la cuota, descomenta este bloque: usa el entorno
+# de pruebas de Let's Encrypt, que tiene limites mucho mas holgados. El
+# navegador va a avisar que el certificado no es de confianza, y eso esta bien:
+# significa que el mecanismo funciona. Despues comenta el bloque, corre
+#     docker compose restart caddy
+# y Caddy pide el certificado de verdad.
+#
+# {
+# 	acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+# }
+# ---------------------------------------------------------------------------
+
 {$N8N_DOMINIO} {
 	reverse_proxy n8n:5678 {
 		# Telegram manda webhooks; sin buffering la respuesta sale de inmediato.
