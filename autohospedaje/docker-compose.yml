@@ -1,0 +1,79 @@
+# n8n autohospedado para el flujo de bibliografia de la memoria.
+#
+# Sirve igual en el notebook (para construir y depurar) y en la Raspberry
+# (para dejarlo corriendo). La unica diferencia esta en WEBHOOK_URL, ver .env.
+#
+#   docker compose up -d       # levantar
+#   docker compose logs -f     # ver que esta pasando
+#   docker compose down        # bajar (los datos quedan en el volumen)
+#
+# La imagen oficial soporta amd64 y arm64. En Raspberry hay que tener el
+# sistema operativo de 64 bits: con el de 32 bits (armv7) te quedas clavado
+# en n8n 1.26.0 y las versiones de nodo de este workflow no calzan.
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+
+    ports:
+      - "5678:5678"
+
+    environment:
+      # --- Zona horaria -----------------------------------------------------
+      # GENERIC_TIMEZONE la usan los nodos Schedule; TZ la usa el sistema.
+      # Deben coincidir con la ZONA_HORARIA del nodo "Normalizar entrada".
+      - GENERIC_TIMEZONE=America/Santiago
+      - TZ=America/Santiago
+
+      # --- Clave de cifrado de credenciales ---------------------------------
+      # CRITICO: con esta clave se cifran las 5 credenciales. Si la pierdes,
+      # las credenciales guardadas quedan ilegibles y hay que rehacerlas todas.
+      # Si no la defines, n8n genera una al azar y la deja dentro del volumen.
+      # Definirla aca la hace respaldable y permite migrar el volumen entre
+      # maquinas (notebook -> Raspberry) sin perder las credenciales.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # --- Chat autorizado de Telegram --------------------------------------
+      # La lee el nodo "Chat autorizado?" como $env.BIBLIO_TELEGRAM_CHAT_ID.
+      # Esta es la ventaja concreta de autohospedar: en n8n Cloud $env viene
+      # bloqueado y hay que escribir el chat_id dentro del nodo.
+      - BIBLIO_TELEGRAM_CHAT_ID=${BIBLIO_TELEGRAM_CHAT_ID}
+
+      # Por defecto ya es false (el acceso a $env esta permitido). Se deja
+      # explicito para que no dependa de un cambio de default mas adelante.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      # --- URL publica ------------------------------------------------------
+      # Telegram registra su webhook contra esta direccion. Ver .env.
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+
+      # --- Archivos binarios ------------------------------------------------
+      # Por defecto n8n guarda los binarios en RAM. Este flujo descarga PDFs
+      # que pueden pesar decenas de MB, asi que en una maquina con poca
+      # memoria (Raspberry de 2 GB) conviene mandarlos al disco.
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+
+      # --- Poda del historial de ejecuciones --------------------------------
+      # Ya viene activada por defecto (14 dias / 10.000 ejecuciones). Aca se
+      # aprieta a 7 dias y 500: para este flujo es mas que suficiente y, sobre
+      # todo en Raspberry con microSD, cada escritura que te ahorras cuenta.
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=500
+
+      # Guardar las ejecuciones exitosas es lo que te permite revisar despues
+      # por que una fuente quedo con estado_resumen = PENDIENTE. Vale la pena.
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+
+    volumes:
+      # Aca vive TODO lo que importa: base de datos SQLite, credenciales
+      # cifradas e historial. Es lo que hay que respaldar.
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:

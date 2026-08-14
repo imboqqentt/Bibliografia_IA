@@ -129,6 +129,11 @@ En el `.tex` necesitas, como siempre:
 \bibliography{referencias}
 ```
 
+> **¿Autohospedado?** Si vas a correr n8n en tu propio hardware (notebook o
+> Raspberry) en vez de n8n Cloud, la guía está en
+> [`autohospedaje/README.md`](autohospedaje/README.md), con el `docker-compose.yml`
+> ya configurado y el paso a paso del túnel para que Telegram te alcance.
+
 > Si no tienes Overleaf de pago: puedes clonar el repo localmente y subir el `.bib`
 > a mano cada cierto tiempo, o cambiar los dos nodos GitHub por nodos Google Drive
 > (`file: update` con *Change File Content*). Pierdes el historial y la sincronización
