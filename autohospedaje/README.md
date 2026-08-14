@@ -42,11 +42,16 @@ credenciales.
 
 ---
 
-> **¿Vas a Oracle Cloud Always Free?** Ese despliegue tiene su propia carpeta:
-> [`oracle/`](oracle/), con PostgreSQL, HTTPS automático vía Caddy, el paso a
-> paso de los dos cortafuegos de Oracle y un script que verifica que no estés
-> en riesgo de que te recuperen la instancia. Esta guía cubre notebook y
-> Raspberry.
+> **Elige tu despliegue:**
+>
+> - **PC de casa o Raspberry** (conexión doméstica, detrás de CGNAT):
+>   [`casa/`](casa/) — PostgreSQL + Cloudflare Tunnel.
+> - **VPS con IP pública** (Oracle, Hetzner, cualquiera):
+>   [`oracle/`](oracle/) — PostgreSQL + Caddy con HTTPS automático.
+> - **Notebook, sólo para armar y probar**: sigue en este archivo, §2.
+>
+> Los tres usan el mismo `workflow.json`. La diferencia está en dónde se
+> termina el TLS, que es lo que cambia según si tienes IP pública o no.
 
 ## 1. Requisitos
 

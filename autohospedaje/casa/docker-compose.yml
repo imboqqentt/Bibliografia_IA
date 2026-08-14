@@ -1,0 +1,119 @@
+# n8n en un PC de casa, detras de una conexion domestica.
+#
+# POR QUE ESTE ARCHIVO Y NO EL DE oracle/
+#
+#   El compose de oracle/ usa Caddy para el HTTPS. Caddy pide el certificado a
+#   Let's Encrypt, y para eso Let's Encrypt tiene que poder ENTRAR a tu maquina
+#   por el puerto 80. En una conexion domestica chilena eso normalmente no se
+#   puede: muchos proveedores usan CGNAT y no te dan IP publica propia, asi que
+#   no hay puerto que abrir.
+#
+#   La solucion es Cloudflare Tunnel: en vez de que entren a tu casa, tu
+#   maquina SALE hacia Cloudflare y mantiene la conexion abierta. Cloudflare
+#   recibe el trafico de Telegram, lo cifra con su propio certificado y te lo
+#   entrega por ese tunel. No abres ningun puerto en el router, no necesitas IP
+#   fija y funciona igual detras de CGNAT.
+#
+#   Como el TLS lo termina Cloudflare, aca no hace falta Caddy.
+#
+# Con 16 GB de RAM esto usa alrededor de 1,5 GB. Sobra holgadamente.
+#
+#   docker compose up -d
+#   docker compose logs -f
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n-postgres
+    restart: unless-stopped
+
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-n8n}
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+
+    # Afinado para una maquina con RAM de sobra. Si algun dia mueves esto a un
+    # equipo mas chico, baja shared_buffers a 256MB.
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=2GB
+      -c work_mem=32MB
+      -c maintenance_work_mem=256MB
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-n8n}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+
+      - GENERIC_TIMEZONE=America/Santiago
+      - TZ=America/Santiago
+
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # El nodo "Chat autorizado?" lee esta variable como $env.BIBLIO_TELEGRAM_CHAT_ID
+      - BIBLIO_TELEGRAM_CHAT_ID=${BIBLIO_TELEGRAM_CHAT_ID}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      # El dominio es el que configuraste en Cloudflare, no la IP de tu casa.
+      - WEBHOOK_URL=https://${N8N_DOMINIO}
+      - N8N_HOST=${N8N_DOMINIO}
+      - N8N_PROTOCOL=https
+      # Un solo salto: el conector de Cloudflare.
+      - N8N_PROXY_HOPS=1
+
+      # El flujo descarga PDFs; a disco en vez de RAM.
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=2000
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+    # n8n NO publica puertos al host. Solo el tunel llega a el, por la red
+    # interna de Docker. Asi tu n8n no queda expuesto ni siquiera dentro de tu
+    # propia red local.
+    expose:
+      - "5678"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: n8n-cloudflared
+    restart: unless-stopped
+
+    depends_on:
+      - n8n
+
+    # Conexion saliente hacia Cloudflare. No escucha nada, no abre puertos.
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+
+volumes:
+  postgres_data:
+  n8n_data:
