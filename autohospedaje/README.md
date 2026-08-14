@@ -1,4 +1,4 @@
-# Autohospedar n8n: notebook y Raspberry
+# Autohospedar n8n: notebook (Windows/macOS/Linux) y Raspberry
 
 Guía para correr el flujo en tu propio hardware en vez de n8n Cloud.
 
@@ -46,7 +46,8 @@ credenciales.
 ## 1. Requisitos
 
 - **Docker** y **Docker Compose**.
-  - Windows / macOS: Docker Desktop.
+  - **Windows 11:** Docker Desktop sobre WSL2. Ver §1.1, tiene detalles propios.
+  - macOS: Docker Desktop.
   - Linux: `docker` + `docker compose` desde el gestor de paquetes.
 - En **Raspberry**: sistema operativo de **64 bits**. Verifica con:
 
@@ -57,6 +58,103 @@ free -h       # 2 GB mínimo, 4 GB cómodo
 
 Con `armv7l` la última imagen disponible es n8n 1.26.0, que es demasiado
 antigua para las versiones de nodo de este workflow.
+
+---
+
+### 1.1 Windows 11
+
+La idea de fondo: **instalas Docker en Windows, pero trabajas dentro de Ubuntu
+(WSL2)**. Todos los comandos de esta guía y de la de Oracle son de Linux
+(`openssl`, `cp`, `dig`, tuberías con `gzip`), y en PowerShell no existen o se
+comportan distinto. Además, así lo que aprendes acá es exactamente lo mismo que
+vas a hacer en el servidor: no aprendes dos veces.
+
+**Requisitos:** Windows 11 Pro, Enterprise o Education 23H2 o superior, 8 GB de
+RAM y virtualización habilitada en la BIOS. Docker Desktop es gratis para uso
+personal y educativo.
+
+#### Paso 1 — Instalar WSL2
+
+En **PowerShell como administrador**:
+
+```powershell
+wsl --install
+```
+
+Instala WSL2 y Ubuntu de una. **Reinicia**. Al volver, Ubuntu se abre solo y te
+pide crear un usuario y contraseña de Linux (no tiene relación con tu cuenta de
+Windows; anótala igual, la vas a necesitar para `sudo`).
+
+#### Paso 2 — Instalar Docker Desktop
+
+Descárgalo de [docker.com](https://docs.docker.com/desktop/setup/install/windows-install/)
+e instálalo dejando marcada la opción de **WSL 2 backend**.
+
+Después ábrelo y ve a **Settings → Resources → WSL Integration**. Activa el
+interruptor de **Ubuntu** y dale a *Apply & restart*. Sin este paso, el comando
+`docker` no existe dentro de Ubuntu.
+
+#### Paso 3 — Verificar desde Ubuntu
+
+Abre **Ubuntu** desde el menú inicio (no PowerShell) y corre:
+
+```bash
+docker --version
+docker compose version
+```
+
+Los dos tienen que responder con una versión. Si dicen *command not found*,
+falta el interruptor del paso 2.
+
+#### Las tres trampas de Windows
+
+**1. Clona en el sistema de archivos de Linux, no en el de Windows.**
+
+```bash
+cd ~                       # /home/tuusuario, dentro de Ubuntu
+git clone -b claude/n8n-bibliography-workflow-6gm00l \
+  https://github.com/imboqqentt/codigos.git memoria
+```
+
+Si clonas en `/mnt/c/Users/...` (o sea, en el disco de Windows), Docker anda
+mucho más lento y aparecen problemas de permisos en los volúmenes. La carpeta
+`~` de Ubuntu es la correcta.
+
+Para abrirla desde el Explorador de Windows cuando la necesites:
+`\\wsl$\Ubuntu\home\tuusuario\memoria`
+
+**2. No edites los archivos con el Bloc de notas ni con editores de Windows.**
+
+Windows guarda los saltos de línea como CRLF y eso rompe el `.env` y los
+scripts. Edita desde Ubuntu con `nano`, o usa VS Code con la extensión
+**WSL** (te aparece "WSL: Ubuntu" abajo a la izquierda cuando estás bien).
+
+```bash
+nano .env
+```
+
+**3. Docker Desktop tiene que estar corriendo.**
+
+Si cierras Docker Desktop, los contenedores se detienen. Déjalo iniciando con
+Windows (**Settings → General → Start Docker Desktop when you sign in**).
+
+#### Opcional: limitar la RAM que toma WSL2
+
+Por defecto WSL2 puede tomar bastante memoria. Si tu notebook anda justo, crea
+el archivo `C:\Users\<tu-usuario>\.wslconfig` con:
+
+```ini
+[wsl2]
+memory=4GB
+processors=2
+```
+
+Después, en PowerShell: `wsl --shutdown` y vuelve a abrir Ubuntu.
+
+#### Y de aquí en adelante
+
+Todo el resto de esta guía se corre **dentro de Ubuntu**, y los comandos son
+idénticos a los de Linux. Sigue desde §2.
 
 ---
 
