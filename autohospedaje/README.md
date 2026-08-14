@@ -116,6 +116,35 @@ docker compose version
 Los dos tienen que responder con una versión. Si dicen *command not found*,
 falta el interruptor del paso 2.
 
+#### Si Docker Desktop falla con "There was a problem with WSL"
+
+Es el error mas comun de esta instalacion. El detalle suele mostrar que
+`wsl.exe --version` devolvio el **texto de ayuda** en vez de un numero: eso
+significa que tu `wsl.exe` es la version antigua incorporada en Windows, y
+Docker Desktop necesita **WSL 2.1.5 o superior**.
+
+En vez de ir revisando a mano, corre el diagnostico completo:
+
+```powershell
+cd Bibliografia_IA\autohospedaje\scripts
+.\diagnostico-wsl.ps1
+```
+
+Revisa las cinco cosas que tienen que estar bien, en el orden en que dependen
+una de otra —virtualizacion en la BIOS, las dos caracteristicas de Windows, la
+version de WSL y las distribuciones instaladas— y te dice cual falla.
+
+Para que ademas intente arreglarlo, abre PowerShell **como Administrador**:
+
+```powershell
+.\diagnostico-wsl.ps1 -Reparar
+```
+
+Puede pedirte reiniciar a mitad de camino. Reinicia y vuelve a correrlo: esta
+hecho para ejecutarse varias veces sin romper nada.
+
+> El script no cambia nada si lo corres sin `-Reparar`.
+
 #### Las tres trampas de Windows
 
 **1. Clona en el sistema de archivos de Linux, no en el de Windows.**
