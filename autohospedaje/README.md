@@ -1,4 +1,4 @@
-# Autohospedar n8n: notebook (Windows/macOS/Linux) y Raspberry
+# Autohospedar n8n en tu propio hardware
 
 Guía para correr el flujo en tu propio hardware en vez de n8n Cloud.
 
@@ -9,12 +9,17 @@ Guía para correr el flujo en tu propio hardware en vez de n8n Cloud.
 Las dos máquinas sirven, pero para cosas distintas, y conviene tenerlo claro
 antes de empezar:
 
-| | Notebook | Raspberry |
-|---|---|---|
-| **Para qué es buena** | Construir, importar, depurar | Dejarlo corriendo |
-| Se suspende al cerrar la tapa | Sí → el bot muere | No |
-| Cambia de red (casa, universidad) | Sí → se cae el túnel | No |
-| Consumo | Irrelevante si igual la usas | 3–6 W |
+| | Notebook | PC en desuso | Raspberry |
+|---|---|---|---|
+| **Para qué es buena** | Construir y depurar | Dejarlo corriendo | Dejarlo corriendo |
+| Se suspende al cerrar la tapa | Sí → el bot muere | No | No |
+| Cambia de red | Sí → se cae el túnel | No | No |
+| Disco | SSD | SSD o HDD | microSD, se desgasta |
+| Consumo | Irrelevante si igual la usas | 30–100 W | 3–6 W |
+
+El **PC en desuso** es técnicamente la mejor de las tres para dejarlo corriendo
+(disco real en vez de microSD, x86 sin sorpresas), pero es el que más consume.
+Ver §1.2 para el cálculo de cuánto te cuesta al mes.
 
 **El punto que importa:** el flujo existe para que mandes links **desde el
 celular cuando encuentras una fuente**. Si n8n vive en el notebook, sólo
@@ -155,6 +160,114 @@ Después, en PowerShell: `wsl --shutdown` y vuelve a abrir Ubuntu.
 
 Todo el resto de esta guía se corre **dentro de Ubuntu**, y los comandos son
 idénticos a los de Linux. Sigue desde §2.
+
+---
+
+### 1.2 PC de escritorio en desuso
+
+Técnicamente es **mejor que la Raspberry**, y la razón principal no es la
+potencia: es el **disco**. La Raspberry arranca desde microSD, y las microSD
+mueren por desgaste de escritura — que es justo lo que hace una base de datos
+funcionando todo el día. Un PC con SSD o incluso con disco duro no tiene ese
+problema. Se suma que es x86\_64, así que no hay nada que revisar sobre
+arquitecturas ni imágenes ARM: todo funciona sin preguntas.
+
+Lo que sí hay que mirar antes es la **cuenta de la luz**.
+
+#### El cálculo que conviene hacer
+
+Regla práctica para Chile, con la tarifa BT1 residencial (entre $110 y $180
+por kWh según distribuidora y zona; el valor exacto está en tu boleta):
+
+> **Cada watt de consumo continuo cuesta alrededor de $100 al mes.**
+
+O sea, un equipo que consume 50 W encendido las 24 horas te cuesta unos
+**$5.000 mensuales**. Para comparar, un VPS en Hetzner sale unos €4,5, que a la
+fecha de escribir esto es del mismo orden.
+
+| Tipo de equipo | Consumo típico en reposo | Costo mensual aprox. |
+|---|---|---|
+| PC antiguo (2008–2012) | 60–100 W | $6.000 – $10.000 |
+| PC intermedio (2015–2020) | 30–50 W | $3.000 – $5.000 |
+| Mini PC / NUC | 10–25 W | $1.000 – $2.500 |
+| Raspberry Pi | 3–6 W | $300 – $600 |
+
+Para medirlo de verdad necesitas un medidor de consumo enchufable. Sin eso, la
+tabla te sirve de estimación.
+
+**Conclusión honesta:** si el PC es de los antiguos, la electricidad te va a
+costar más que arrendar un VPS. Si es intermedio, sale parecido. Si es un mini
+PC, gana por lejos. En ninguno de los casos es "gratis", que es lo que uno
+supone al usar algo que ya tiene.
+
+#### Requisitos
+
+- **4 GB de RAM** mínimo, 8 GB cómodo.
+- Cualquier disco. Si tiene HDD mecánico anda igual, sólo más lento al arrancar.
+- Conexión por cable al router, idealmente. El WiFi se cae más seguido y aquí
+  la disponibilidad es todo el punto.
+
+#### Instalación
+
+**Instala Ubuntu Server, no Ubuntu Desktop.** El escritorio se come 1–2 GB de
+RAM en dibujar una pantalla que nunca vas a mirar. Descarga *Ubuntu Server LTS*
+desde [ubuntu.com](https://ubuntu.com/download/server), grábalo con
+[Rufus](https://rufus.ie) o [balenaEtcher](https://etcher.balena.io) y durante
+la instalación marca **"Install OpenSSH server"**.
+
+Después de instalar, desde tu notebook:
+
+```bash
+ssh tuusuario@<ip-local-del-pc>
+```
+
+Y desde ahí sigues con Docker igual que en el servidor:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+#### Los tres ajustes que la gente olvida
+
+**1. Que se encienda solo después de un corte de luz.**
+
+Es el más importante y no es de software: está en la **BIOS/UEFI**. Busca una
+opción llamada *Restore on AC Power Loss*, *AC Back Function* o *After Power
+Failure* y déjala en **Power On** (viene en *Last State* o *Power Off* según el
+equipo).
+
+Sin esto, un corte de luz a las 3 de la mañana deja el bot muerto hasta que
+llegues a casa a apretar el botón.
+
+**2. Que no se suspenda.**
+
+Ubuntu Server normalmente no suspende, pero asegúralo:
+
+```bash
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+```
+
+**3. Que no se apague al cerrar la tapa** (si fuera un notebook viejo):
+
+```bash
+sudo sed -i 's/^#*HandleLidSwitch=.*/HandleLidSwitch=ignore/' /etc/systemd/logind.conf
+sudo systemctl restart systemd-logind
+```
+
+#### Para que Telegram lo alcance
+
+Igual que con la Raspberry: **Cloudflare Tunnel**, la opción B de §3. Estás en
+una conexión doméstica, así que probablemente detrás de CGNAT, y el túnel
+resuelve eso sin abrir puertos en el router.
+
+#### Un ahorro extra
+
+Una vez que ande y accedas sólo por SSH, **desconecta el monitor** y, si el
+equipo tiene tarjeta de video dedicada que no necesitas, sácala y usa el video
+integrado. Una GPU antigua puede estar consumiendo 15–20 W sin hacer nada, que
+son $1.500–$2.000 al mes tirados a la basura.
 
 ---
 
