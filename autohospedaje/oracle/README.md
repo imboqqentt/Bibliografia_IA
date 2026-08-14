@@ -4,8 +4,8 @@ Despliegue con **PostgreSQL + Caddy (HTTPS automático)** sobre una instancia
 ARM gratuita de Oracle.
 
 > **¿Vas a instalarlo ahora?** Sigue
-> [](PUESTA-EN-MARCHA.md), que es la misma información
-> pero ordenada por tiempo, con checkpoints de verificación. Este README es la
+> [PUESTA-EN-MARCHA.md](PUESTA-EN-MARCHA.md), que es la misma información pero
+> ordenada por tiempo, con checkpoints de verificación. Este README es la
 > referencia por tema: búscalo cuando necesites el detalle de algo puntual.
 
 La idea de fondo: la instancia no se mantiene viva con trucos, se mantiene
