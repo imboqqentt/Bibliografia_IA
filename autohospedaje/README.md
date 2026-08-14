@@ -37,6 +37,12 @@ credenciales.
 
 ---
 
+> **¿Vas a Oracle Cloud Always Free?** Ese despliegue tiene su propia carpeta:
+> [`oracle/`](oracle/), con PostgreSQL, HTTPS automático vía Caddy, el paso a
+> paso de los dos cortafuegos de Oracle y un script que verifica que no estés
+> en riesgo de que te recuperen la instancia. Esta guía cubre notebook y
+> Raspberry.
+
 ## 1. Requisitos
 
 - **Docker** y **Docker Compose**.

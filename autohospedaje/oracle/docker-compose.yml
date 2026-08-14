@@ -1,0 +1,136 @@
+# n8n en Oracle Cloud Always Free (shape ARM VM.Standard.A1.Flex).
+#
+# Diferencias con el compose del notebook/Raspberry:
+#
+#   1. PostgreSQL en vez de SQLite. Es lo que n8n recomienda para uso serio y,
+#      de paso, resuelve el criterio de memoria de Oracle: la instancia se
+#      considera INACTIVA solo si CPU, red Y memoria estan las tres bajo 20%
+#      durante 7 dias. Con Postgres afinado, la memoria se mantiene sobre ese
+#      umbral con carga REAL, sin scripts que simulen actividad.
+#
+#   2. Caddy como proxy inverso, con HTTPS automatico de Let's Encrypt.
+#      Aprovecha que Oracle si te da IP publica de verdad.
+#
+# Dimensionar la instancia en 1 OCPU / 4 GB, NO en el maximo disponible:
+# pedir 12 GB para usar 1 GB es lo que te deja bajo el umbral de inactividad.
+#
+#   docker compose up -d
+#   docker compose logs -f
+#   ./verificar-inactividad.sh     # revisa que estes sobre los umbrales
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n-postgres
+    restart: unless-stopped
+
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-n8n}
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+
+    # Afinado real, no relleno: con 4 GB disponibles, darle 512 MB de
+    # shared_buffers a Postgres es la recomendacion estandar (~12% de la RAM).
+    # Que ademas te saque del umbral de inactividad de Oracle es un efecto
+    # lateral conveniente, no el objetivo.
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      # --- Base de datos ----------------------------------------------------
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-n8n}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+
+      # --- Zona horaria -----------------------------------------------------
+      - GENERIC_TIMEZONE=America/Santiago
+      - TZ=America/Santiago
+
+      # --- Clave de cifrado de credenciales ---------------------------------
+      # Con Postgres, la base ya no vive en .n8n, pero la clave de cifrado
+      # sigue siendo lo que hace legibles las credenciales. Guardala aparte.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # --- Chat autorizado de Telegram --------------------------------------
+      - BIBLIO_TELEGRAM_CHAT_ID=${BIBLIO_TELEGRAM_CHAT_ID}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      # --- URL publica ------------------------------------------------------
+      - WEBHOOK_URL=https://${N8N_DOMINIO}
+      - N8N_HOST=${N8N_DOMINIO}
+      - N8N_PROTOCOL=https
+      # Detras de un proxy inverso hay exactamente un salto (Caddy).
+      # Sin esto n8n arma mal las URLs y ve la IP del proxy como la del cliente.
+      - N8N_PROXY_HOPS=1
+
+      # --- Archivos binarios ------------------------------------------------
+      # El flujo descarga PDFs; a disco en vez de RAM.
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+
+      # --- Poda del historial -----------------------------------------------
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=2000
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+
+    volumes:
+      # Con Postgres aca ya no esta la base, pero si quedan la clave de
+      # cifrado, los binarios y los logs. Igual hay que respaldarlo.
+      - n8n_data:/home/node/.n8n
+
+    # n8n NO expone puertos al host: solo Caddy habla con el.
+    # Asi no hay forma de llegar a n8n saltandose el HTTPS.
+    expose:
+      - "5678"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: n8n-caddy
+    restart: unless-stopped
+
+    depends_on:
+      - n8n
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    environment:
+      - N8N_DOMINIO=${N8N_DOMINIO}
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificados de Let's Encrypt: NO borrar
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  n8n_data:
+  caddy_data:
+  caddy_config:

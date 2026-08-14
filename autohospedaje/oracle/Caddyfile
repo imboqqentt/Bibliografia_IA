@@ -1,0 +1,23 @@
+# Proxy inverso con HTTPS automatico.
+#
+# Caddy pide y renueva solo el certificado de Let's Encrypt. Para que funcione:
+#   - el dominio debe apuntar (registro A) a la IP publica de la instancia;
+#   - los puertos 80 y 443 deben estar abiertos en la Security List de Oracle
+#     Y en el iptables de la maquina (ver README, es el tropiezo clasico).
+
+{$N8N_DOMINIO} {
+	reverse_proxy n8n:5678 {
+		# Telegram manda webhooks; sin buffering la respuesta sale de inmediato.
+		flush_interval -1
+	}
+
+	# Cabeceras de seguridad basicas.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		-Server
+	}
+
+	encode gzip
+}
