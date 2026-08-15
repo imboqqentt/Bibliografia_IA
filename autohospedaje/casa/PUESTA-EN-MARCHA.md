@@ -143,9 +143,44 @@ Detalle completo en §4 del [README principal](../../README.md).
 2. Genera un **fine-grained personal access token** limitado a ese repo, con
    permiso `Contents: Read and write`. Nada más.
 
-## 2.4 Anthropic
+## 2.4 El modelo de lenguaje: elige uno de los dos
 
-API key en [console.anthropic.com](https://console.anthropic.com) → *API Keys*.
+El modelo sólo redacta el resumen. Los metadatos bibliográficos salen de Crossref,
+así que el proveedor es una pieza **intercambiable**: cuelga de un solo
+sub-nodo y no toca nada más del flujo.
+
+Por eso el repositorio trae dos archivos importables. **Importas uno, no los
+dos:**
+
+| Archivo | Proveedor | Costo |
+|---|---|---|
+| `workflow.json` | Anthropic (Claude) | De pago, con carga mínima de US$5 |
+| `workflow-gemini.json` | Google Gemini | Tiene capa gratuita |
+
+### Opción A — Google Gemini (gratis)
+
+1. Entra a [aistudio.google.com/apikey](https://aistudio.google.com/apikey) con
+   tu cuenta de Google.
+2. *Create API key*, elige el proyecto, copia la clave.
+3. En n8n la credencial se llama **Google Gemini(PaLM) Api**. El nombre es
+   histórico y confunde: es la correcta, y sólo pide la API key.
+
+> **No es la misma credencial que la de Sheets y Docs.** Aquéllas son OAuth
+> contra tu cuenta; ésta es una API key de Google AI Studio. Son dos cosas
+> distintas aunque las dos sean de Google.
+
+La capa gratuita tiene límites por minuto y por día. Para registrar unas pocas
+fuentes al día sobra de largo; si algún día chocas con el límite, el flujo no se
+rompe: la referencia queda registrada con `estado_resumen = PENDIENTE`.
+
+### Opción B — Anthropic (de pago)
+
+API key en [console.anthropic.com](https://console.anthropic.com) → *API Keys*,
+y créditos en *Plans & Billing* (mínimo US$5).
+
+Para unas 30 fuentes al mes, con Claude Sonnet 5, el gasto ronda **US$1
+mensual**: esos US$5 dan para casi medio año. Con Claude Haiku 4.5 baja a la
+mitad.
 
 ## Checkpoint 2
 
@@ -154,7 +189,8 @@ API key en [console.anthropic.com](https://console.anthropic.com) → *API Keys*
 - [ ] ID de la planilla anotado
 - [ ] OAuth client de Google creado
 - [ ] `referencias.bib` existe en el repo
-- [ ] Token de GitHub y API key de Anthropic
+- [ ] Token de GitHub
+- [ ] API key del modelo elegido (Gemini o Anthropic)
 
 ---
 
@@ -317,10 +353,17 @@ contraseña. **Es local, tuya, no se registra en ningún servicio.** Anótala.
 
 ## 3.5 Importar y conectar
 
-1. Abre `workflow.json` del repo, copia todo y pega con **Ctrl+V** en el canvas.
+1. Abre el archivo que corresponde al proveedor que elegiste en §2.4
+   (`workflow-gemini.json` o `workflow.json`), copia todo y pega con **Ctrl+V**
+   en el canvas.
+
+   > Si ya habías importado la otra variante, bórrala primero: dos flujos con
+   > el mismo Telegram Trigger se pelean el webhook y sólo uno responde.
+
 2. Conecta las credenciales **por etapas**, no todas de golpe:
    - Telegram (los 3 nodos)
-   - Anthropic
+   - El modelo: *Modelo Gemini* o *Modelo Anthropic*, según el archivo que
+     importaste
    - Google Sheets → pega el ID de la planilla en los dos nodos
    - GitHub → completa `owner` y `repository` en los dos nodos
    - Google Docs → ajusta `folderId` si quieres carpeta propia
@@ -337,7 +380,7 @@ Acá está la parte que mucha gente no sabe que se puede.
 4. **Cambia los `id` de `from` y `chat` por tu chat\_id real.**
 5. **Execute Workflow**.
 
-El flujo corre completo: consulta Crossref, resume con Claude, escribe la
+El flujo corre completo: consulta Crossref, resume con el modelo, escribe la
 entrada en `referencias.bib`, crea la nota y agrega la fila.
 
 Repite con los otros tres casos del archivo (DOI suelto, página sin DOI, chat

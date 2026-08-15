@@ -1,5 +1,5 @@
 {
-  "name": "Bibliografia Memoria — Telegram a BibTeX (anthropic)",
+  "name": "Bibliografia Memoria — Telegram a BibTeX (gemini)",
   "nodes": [
     {
       "parameters": {
@@ -636,32 +636,27 @@
     },
     {
       "parameters": {
-        "model": {
-          "__rl": true,
-          "value": "claude-sonnet-4-6",
-          "mode": "list",
-          "cachedResultName": "claude-sonnet-4-6"
-        },
+        "modelName": "models/gemini-2.5-flash",
         "options": {
-          "maxTokensToSample": 2048,
+          "maxOutputTokens": 2048,
           "temperature": 0.2
         }
       },
-      "id": "7e458b48-fbc7-5b09-a8f3-aa00d2eeaf26",
-      "name": "Modelo Anthropic",
-      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
-      "typeVersion": 1.3,
+      "id": "8a3c7dfc-2410-52ec-83b0-d777ade29024",
+      "name": "Modelo Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
       "position": [
         3340,
         560
       ],
       "credentials": {
-        "anthropicApi": {
+        "googlePalmApi": {
           "id": "REEMPLAZAR",
-          "name": "Anthropic Memoria"
+          "name": "Google Gemini Memoria"
         }
       },
-      "notes": "Si tu version de n8n no lista este modelo, elige otro del desplegable."
+      "notes": "Capa gratuita de Google AI Studio. Si el desplegable no lista el modelo, elige cualquier otro *-flash."
     },
     {
       "parameters": {
@@ -1291,7 +1286,7 @@
         ]
       ]
     },
-    "Modelo Anthropic": {
+    "Modelo Gemini": {
       "ai_languageModel": [
         [
           {

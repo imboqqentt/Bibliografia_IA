@@ -46,7 +46,7 @@ que elegir la tuya del desplegable después de importar.
 | Credencial en n8n | Tipo | Para qué | Cómo se obtiene |
 |---|---|---|---|
 | Telegram Bot Memoria | `Telegram API` | Trigger y respuestas | Token que te da @BotFather (ver §2) |
-| Anthropic Memoria | `Anthropic API` | Resumen con Claude | `console.anthropic.com` → API Keys |
+| Anthropic Memoria **o** Google Gemini Memoria | `Anthropic API` **o** `Google Gemini(PaLM) Api` | Redacción del resumen | `console.anthropic.com` → API Keys, **o** `aistudio.google.com/apikey` — ver §1.1 |
 | GitHub Memoria | `GitHub API` (Access Token) | Leer y escribir `referencias.bib` | Token fino con permiso **Contents: Read and write** sobre el repo de la memoria |
 | Google Sheets Memoria | `Google Sheets OAuth2 API` | Consolidado | Google Cloud Console → OAuth client (ver §4) |
 | Google Docs Memoria | `Google Docs OAuth2 API` | Notas de lectura | Mismo proyecto de Google Cloud, mismo client |
@@ -54,6 +54,39 @@ que elegir la tuya del desplegable después de importar.
 Para GitHub usa un **fine-grained personal access token** limitado al repositorio de la
 memoria, no un token clásico con acceso a toda tu cuenta. Los permisos mínimos son
 `Contents: Read and write` sobre ese repo, nada más.
+
+### 1.1 Qué modelo de lenguaje: hay dos archivos importables
+
+El modelo **sólo redacta el resumen, la descripción breve, las palabras clave y la
+utilidad**. Autor, año, revista y tipo salen de Crossref siempre. Por eso el proveedor
+es una pieza intercambiable: cuelga de `Resumir con LLM` por una conexión
+`ai_languageModel` y no toca ningún otro nodo.
+
+El repositorio trae dos variantes generadas del mismo código. **Importas una, no las
+dos:**
+
+| Archivo | Sub-nodo | Credencial | Costo |
+|---|---|---|---|
+| `workflow.json` | Modelo Anthropic | `Anthropic API` | De pago; carga mínima US$5 |
+| `workflow-gemini.json` | Modelo Gemini | `Google Gemini(PaLM) Api` | Capa gratuita |
+
+**Gemini** se saca en [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+Ojo: en n8n la credencial aparece como *Google Gemini(PaLM) Api* — el nombre es
+histórico, es la correcta— y **no** es la misma que las de Sheets y Docs: aquéllas son
+OAuth contra tu cuenta, ésta es una API key. La capa gratuita tiene límites por minuto
+y por día; si alguna vez los chocas, el flujo no se rompe, la referencia queda con
+`estado_resumen = PENDIENTE`.
+
+**Anthropic**, para referencia de costo: unas 30 fuentes al mes con Claude Sonnet 5
+salen alrededor de **US$1 mensual**, así que la carga mínima de US$5 alcanza para casi
+medio año. Con Claude Haiku 4.5 es la mitad.
+
+Para regenerar los archivos desde el código:
+
+```bash
+python3 build_workflow.py                       # -> workflow.json
+LLM_PROVEEDOR=gemini python3 build_workflow.py  # -> workflow-gemini.json
+```
 
 Además necesitas **una variable de entorno** en tu instancia de n8n:
 
@@ -228,11 +261,13 @@ Para tenerlo ordenado, crea una carpeta *Notas de lectura*, copia su ID desde la
 
 ## 5. Importar el flujo
 
-1. Abre `workflow.json`, selecciona todo y cópialo.
+1. Abre `workflow.json` o `workflow-gemini.json` —según el proveedor que elegiste en
+   §1.1—, selecciona todo y cópialo.
 2. En n8n, entra a un workflow nuevo y pega con **Ctrl+V** sobre el canvas.
 3. Recorre los nodos con credencial (aparecen con un triángulo de advertencia) y elige
    la credencial correcta en cada uno:
-   Telegram Trigger · Avisar duplicado · Confirmar por Telegram · Modelo Anthropic ·
+   Telegram Trigger · Avisar duplicado · Confirmar por Telegram ·
+   **Modelo Anthropic** o **Modelo Gemini** ·
    Leer consolidado · Agregar fila consolidado · Leer referencias.bib ·
    Escribir referencias.bib · Crear nota · Escribir nota.
 4. Reemplaza los placeholders:

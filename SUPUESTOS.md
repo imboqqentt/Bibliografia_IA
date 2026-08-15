@@ -24,7 +24,8 @@ tocar a mano después de importar.
 1. **n8n propio o Cloud, versión reciente.** Los nodos van con estas versiones de
    esquema: `telegramTrigger` 1.2, `if` 2.2, `code` 2, `httpRequest` 4.2,
    `extractFromFile` 1.1, `googleSheets` 4.5, `github` 1.1, `googleDocs` 2,
-   `telegram` 1.2, `chainLlm` 1.5, `lmChatAnthropic` 1.3, `outputParserStructured` 1.2.
+   `telegram` 1.2, `chainLlm` 1.5, `outputParserStructured` 1.2, y —según la variante—
+   `lmChatAnthropic` 1.3 o `lmChatGoogleGemini` 1.
    Si tu n8n es más antiguo, al importar verás "unknown node version" en algún nodo:
    bájale el `typeVersion` en el JSON o vuelve a crear ese nodo desde el canvas.
 2. **Overleaf con plan de pago**, que es lo que habilita la sincronización con GitHub.
@@ -111,9 +112,16 @@ Ordenado de más a menos probable.
    tienes que poner tu chat_id literal en el nodo **Chat autorizado?**. Si no lo haces,
    ese nodo va a fallar en cada mensaje. Es la única parte del flujo que exige una
    decisión sobre dónde corres n8n.
-3. **El modelo de Anthropic.** El nodo trae `claude-sonnet-4-6`, que es el valor por
-   defecto de la versión actual del nodo en n8n. Si tu instancia es más antigua o el
-   desplegable no lo lista, elige otro modelo de la lista. Es un cambio de un click.
+3. **El modelo de lenguaje concreto.** `workflow.json` trae `claude-sonnet-4-6` y
+   `workflow-gemini.json` trae `models/gemini-2.5-flash`. Los dos son valores por
+   defecto razonables, no requisitos: si tu instancia es más antigua o el desplegable
+   no lista ese modelo, elige otro de la lista. Es un cambio de un click.
+
+   El proveedor mismo también es intercambiable, y a propósito: el modelo redacta
+   *sólo* el resumen, la descripción, las palabras clave y la utilidad. Los metadatos
+   bibliográficos vienen de Crossref, así que cambiar de proveedor no puede afectar la
+   corrección de una cita. Eso es lo que permite tener dos variantes del flujo que se
+   diferencian en un único sub-nodo.
 4. **La pestaña de la planilla se busca por nombre (`Consolidado`)** usando el modo
    *By Name* del selector. Si tu versión de n8n no ofrece ese modo, cambia el selector
    a *From list* y elige la pestaña. Igual con el ID de la planilla si prefieres *From

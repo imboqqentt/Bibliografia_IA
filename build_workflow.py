@@ -6,7 +6,8 @@ Genera workflow.json a partir de los archivos de code/.
 Se mantiene el codigo de los nodos Code en archivos .js separados y se inyecta
 aqui, para no tener que editar JavaScript escapado dentro de un JSON gigante.
 
-Uso:  python3 build_workflow.py
+Uso:  python3 build_workflow.py                       -> workflow.json (Anthropic)
+      LLM_PROVEEDOR=gemini python3 build_workflow.py  -> workflow-gemini.json
 """
 
 import io
@@ -94,6 +95,75 @@ def code_node(name, archivo, pos, notes):
         name, "n8n-nodes-base.code", 2, pos,
         {"mode": "runOnceForAllItems", "jsCode": js(archivo)},
         notes=notes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Proveedor del modelo de lenguaje
+# ---------------------------------------------------------------------------
+# El LLM es una PIEZA INTERCAMBIABLE. Cuelga del nodo "Resumir con LLM" por una
+# conexion de tipo ai_languageModel y no toca ningun otro nodo: los metadatos
+# bibliograficos salen de Crossref, no del modelo. Cambiar de proveedor es
+# cambiar este sub-nodo y nada mas.
+#
+# Por eso el script genera DOS archivos importables:
+#
+#   workflow.json         -> Anthropic (Claude). Requiere credito en la API.
+#   workflow-gemini.json  -> Google Gemini. Tiene capa gratuita.
+#
+# Se importa uno de los dos, no los dos.
+
+PROVEEDORES = {
+    "anthropic": {
+        "nodo": "Modelo Anthropic",
+        "archivo": "workflow.json",
+        "tipo": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+        "typeVersion": 1.3,
+        "parametros": {
+            "model": {"__rl": True, "value": "claude-sonnet-4-6", "mode": "list",
+                      "cachedResultName": "claude-sonnet-4-6"},
+            "options": {"maxTokensToSample": 2048, "temperature": 0.2},
+        },
+        "credenciales": {"anthropicApi": {"id": "REEMPLAZAR",
+                                          "name": "Anthropic Memoria"}},
+        "notas": "Si tu version de n8n no lista este modelo, elige otro del "
+                 "desplegable.",
+    },
+    "gemini": {
+        "nodo": "Modelo Gemini",
+        "archivo": "workflow-gemini.json",
+        "tipo": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+        # La v1.1 existe y trae por defecto un modelo en preview. Se fija la v1
+        # a proposito: es la que garantiza el modelo estable de abajo.
+        "typeVersion": 1,
+        "parametros": {
+            # gemini-2.5-flash esta en la capa gratuita y tiene contexto de
+            # sobra para los 45.000 caracteres que manda el flujo.
+            "modelName": "models/gemini-2.5-flash",
+            "options": {"maxOutputTokens": 2048, "temperature": 0.2},
+        },
+        # Ojo con el nombre: la credencial se llama "Google Gemini(PaLM) Api"
+        # en la interfaz, por razones historicas. Es la correcta.
+        "credenciales": {"googlePalmApi": {"id": "REEMPLAZAR",
+                                           "name": "Google Gemini Memoria"}},
+        "notas": "Capa gratuita de Google AI Studio. Si el desplegable no lista "
+                 "el modelo, elige cualquier otro *-flash.",
+    },
+}
+
+PROVEEDOR = os.environ.get("LLM_PROVEEDOR", "anthropic")
+if PROVEEDOR not in PROVEEDORES:
+    raise SystemExit("LLM_PROVEEDOR debe ser uno de: %s"
+                     % ", ".join(sorted(PROVEEDORES)))
+LLM = PROVEEDORES[PROVEEDOR]
+
+
+def nodo_modelo():
+    return node(
+        LLM["nodo"], LLM["tipo"], LLM["typeVersion"], (3340, 560),
+        LLM["parametros"],
+        credentials=LLM["credenciales"],
+        notes=LLM["notas"],
     )
 
 
@@ -373,16 +443,7 @@ nodes.append(node(
     notes="El LLM SOLO redacta resumen, descripcion breve, palabras clave y utilidad.",
 ))
 
-nodes.append(node(
-    "Modelo Anthropic", "@n8n/n8n-nodes-langchain.lmChatAnthropic", 1.3, (3340, 560),
-    {
-        "model": {"__rl": True, "value": "claude-sonnet-4-6", "mode": "list",
-                  "cachedResultName": "claude-sonnet-4-6"},
-        "options": {"maxTokensToSample": 2048, "temperature": 0.2},
-    },
-    credentials={"anthropicApi": {"id": "REEMPLAZAR", "name": "Anthropic Memoria"}},
-    notes="Si tu version de n8n no lista este modelo, elige otro del desplegable.",
-))
+nodes.append(nodo_modelo())
 
 nodes.append(node(
     "Formato JSON del resumen", "@n8n/n8n-nodes-langchain.outputParserStructured", 1.2,
@@ -574,7 +635,7 @@ connections = {
     "Ya registrado?": rama("Avisar duplicado", "Hay texto para resumir?"),
     "Hay texto para resumir?": rama("Resumir con LLM", "Consolidar registro"),
     "Resumir con LLM": main("Consolidar registro"),
-    "Modelo Anthropic": {"ai_languageModel": [
+    LLM["nodo"]: {"ai_languageModel": [
         [{"node": "Resumir con LLM", "type": "ai_languageModel", "index": 0}]]},
     "Formato JSON del resumen": {"ai_outputParser": [
         [{"node": "Resumir con LLM", "type": "ai_outputParser", "index": 0}]]},
@@ -589,7 +650,9 @@ connections = {
 }
 
 workflow = {
-    "name": "Bibliografia Memoria — Telegram a BibTeX",
+    # El proveedor va en el nombre para no confundir las dos variantes si
+    # llegas a importar ambas por error.
+    "name": "Bibliografia Memoria — Telegram a BibTeX (%s)" % PROVEEDOR,
     "nodes": nodes,
     "connections": connections,
     "pinData": {},
@@ -614,8 +677,9 @@ for origen, salidas in connections.items():
             for c in r:
                 assert c["node"] in nombres, "Destino inexistente: %s" % c["node"]
 
-destino = os.path.join(BASE, "workflow.json")
+destino = os.path.join(BASE, LLM["archivo"])
 with io.open(destino, "w", encoding="utf-8") as fh:
     fh.write(json.dumps(workflow, ensure_ascii=False, indent=2))
 
-print("OK  %s  (%d nodos, %d conexiones)" % (destino, len(nodes), len(connections)))
+print("OK  %s  (%d nodos, %d conexiones, LLM: %s)"
+      % (destino, len(nodes), len(connections), PROVEEDOR))
