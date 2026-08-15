@@ -402,6 +402,93 @@ no autorizado).
 
 ---
 
+# BLOQUE 3.5 — Telegram de verdad, sin dominio (opcional)
+
+Sáltate este bloque si el dominio ya está listo. Sirve si quedaste esperando
+que se habiliten los beneficios de GitHub Education y quieres probar el bot
+desde el celular mientras tanto.
+
+## Qué necesita el dominio y qué no
+
+Es la confusión más común de este proyecto, así que vale separarlo:
+
+| Nodo | Dirección | ¿Necesita dominio? |
+|---|---|---|
+| Avisar duplicado | n8n → Telegram | **No** |
+| Confirmar por Telegram | n8n → Telegram | **No** |
+| Telegram Trigger | Telegram → n8n | **Sí** |
+
+Los dos nodos que *envían* son llamadas salientes a la API de Telegram: salen
+de tu PC hacia internet y funcionan aunque nadie pueda entrar a tu máquina.
+**Conecta esas credenciales ahora**, no esperes nada.
+
+El único que necesita una dirección pública es el **Trigger**, porque ahí es
+Telegram el que tiene que entrar a tu n8n para avisarte que llegó un mensaje.
+Eso se llama *webhook*, y Telegram exige que sea HTTPS con certificado válido.
+
+## Túnel rápido: una dirección pública prestada
+
+Cloudflare regala tuneles temporales sin cuenta y sin dominio. Te dan una
+dirección al azar tipo `https://algo-random-aqui.trycloudflare.com`, con
+HTTPS válido, que es exactamente lo que Telegram pide.
+
+En la carpeta del proyecto:
+
+```bash
+docker compose --profile rapido up cloudflared-rapido
+```
+
+Déjalo corriendo en esa terminal. Entre los mensajes va a aparecer un recuadro
+con la dirección:
+
+```
++---------------------------------------------------------+
+|  Your quick Tunnel has been created! Visit it at:        |
+|  https://algo-random-aqui.trycloudflare.com              |
++---------------------------------------------------------+
+```
+
+Cópiala. En **otra** terminal, en la misma carpeta:
+
+```bash
+nano .env
+```
+
+Cambia las cuatro líneas del bloque de URL pública:
+
+```
+N8N_URL_PUBLICA=https://algo-random-aqui.trycloudflare.com
+N8N_HOST=algo-random-aqui.trycloudflare.com
+N8N_PROTOCOL=https
+N8N_PROXY_HOPS=1
+```
+
+Guarda (`Ctrl+O`, `Enter`, `Ctrl+X`) y recarga n8n:
+
+```bash
+docker compose up -d n8n
+```
+
+Ahora abre el workflow, dale **Publish**, y escríbele al bot desde el celular.
+
+## Las dos advertencias
+
+> **La dirección cambia cada vez que reinicias el túnel.** No es un bug, es
+> cómo funcionan estos túneles prestados: cada arranque provisiona uno nuevo
+> con nombre distinto. Si cierras esa terminal o reinicias el PC, tienes que
+> repetir el `.env` con la nueva dirección y volver a publicar el workflow para
+> que Telegram registre el webhook nuevo.
+>
+> Por eso esto es una **prueba**, no la instalación definitiva. Para el uso
+> diario sigue con los bloques 4 y 5, que dan una dirección estable.
+
+> **Mientras el túnel esté arriba, cualquiera que adivine esa dirección llega a
+> tu n8n.** En la práctica es improbable —son nombres aleatorios largos— y el
+> nodo *Chat autorizado?* descarta a cualquiera que no seas tú. Aun así, bájalo
+> con `Ctrl+C` cuando termines de probar.
+
+---
+
 # BLOQUE 4 — El dominio (día 3, al habilitarse los beneficios)
 
 ## 4.1 Canjear la oferta
@@ -612,6 +699,26 @@ Para automatizarlo cada domingo, `crontab -e`:
 | El bot ignora tus mensajes | `BIBLIO_TELEGRAM_CHAT_ID` mal puesto. Falla cerrado a propósito |
 | El flujo usa siempre el mismo link | Quedó el pin puesto en el Telegram Trigger |
 | Un nodo con triángulo de advertencia | Versión de n8n distinta. Mándame cuál es |
+| **Agregar fila consolidado:** *At least one value has to be added under 'Values to Send'* | El modo de mapeo se reseteó a *Map Each Column Manually*. Ver abajo |
+
+### El reseteo del nodo de Sheets
+
+Ese error es engañoso: no falta ningún dato, el nodo cambió de modo solo.
+
+El nodo viene con **Mapping Column Mode = Map Automatically**, que toma las
+claves del item y las calza contra los encabezados de la fila 1. Pero ese campo
+vive dentro del mismo componente que el selector de documento y de pestaña, así
+que **al cambiar la planilla o la hoja n8n lo reinicializa y vuelve al valor por
+defecto del nodo, que es *Map Each Column Manually***. Sin columnas definidas a
+mano, el nodo tira ese mensaje.
+
+Arreglo: abre el nodo y en **Mapping Column Mode** vuelve a elegir **Map
+Automatically**. Nada más.
+
+Si después de eso alguna columna llega vacía, el problema es otro: los
+encabezados de la fila 1 no calzan exactamente con los 14 nombres. El calce es
+literal —minúsculas, guiones bajos, sin espacios de sobra al final—, así que
+conviene copiarlos y pegarlos desde el README en vez de escribirlos.
 
 ## Dónde te puedo ayudar
 

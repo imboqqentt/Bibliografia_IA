@@ -127,6 +127,16 @@ Ordenado de más a menos probable.
    a *From list* y elige la pestaña. Igual con el ID de la planilla si prefieres *From
    list* en vez de *By ID*.
 
+   > **Ojo con el efecto secundario.** El selector de documento, el de pestaña y el
+   > modo de mapeo son partes del mismo componente (`resourceMapper`). Si cambias el
+   > documento o la hoja desde la interfaz, n8n reinicializa el componente entero y el
+   > **Mapping Column Mode vuelve a su valor por defecto, `defineBelow`** (*Map Each
+   > Column Manually*), pisando el `autoMapInputData` que trae el JSON. Sin columnas
+   > definidas a mano, el nodo falla con *"At least one value has to be added under
+   > 'Values to Send'"*. No falta ningún dato: hay que volver a elegir **Map
+   > Automatically** en el nodo. Pasa igual en *Leer consolidado* si alguna vez le
+   > cambias la hoja.
+
 ### Bastante probable
 
 5. **La ruta del `.bib`.** Viene como `referencias.bib` en la raíz. Si en tu proyecto

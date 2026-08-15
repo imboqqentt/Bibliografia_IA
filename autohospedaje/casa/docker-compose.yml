@@ -142,6 +142,44 @@ services:
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
+  # ---------------------------------------------------------------------------
+  # Tunel rapido, para probar Telegram ANTES de tener el dominio.
+  #
+  #   docker compose --profile rapido up cloudflared-rapido
+  #
+  # Cloudflare provisiona un tunel temporal sin cuenta y sin dominio, y entrega
+  # una direccion al azar del tipo
+  #
+  #     https://algo-random-aqui.trycloudflare.com
+  #
+  # con HTTPS valido, que es lo unico que Telegram exige para el webhook. La
+  # direccion aparece en los logs de este contenedor, dentro de un recuadro.
+  #
+  # DOS COSAS QUE HAY QUE SABER:
+  #
+  #   - La direccion CAMBIA en cada arranque. Cada vez que lo levantas hay que
+  #     actualizar N8N_URL_PUBLICA y N8N_HOST en el .env, recargar n8n y volver
+  #     a publicar el workflow para que Telegram registre el webhook nuevo. Por
+  #     eso esto es una prueba, no la instalacion definitiva.
+  #
+  #   - No lleva 'restart: unless-stopped' a proposito. Si se cae, la direccion
+  #     que quedo en el .env deja de ser valida igual, asi que reiniciarlo solo
+  #     no arreglaria nada y encima dejaria el tunel abierto sin que te enteres.
+  #
+  # El perfil "rapido" hace que NO arranque con un 'docker compose up -d'
+  # normal: hay que pedirlo explicitamente.
+  cloudflared-rapido:
+    image: cloudflare/cloudflared:latest
+    container_name: n8n-cloudflared-rapido
+    profiles: ["rapido"]
+
+    depends_on:
+      - n8n
+
+    # http://n8n:5678, no localhost: 'n8n' es el nombre del servicio en la red
+    # interna de Docker. Con localhost el tunel se apuntaria a si mismo.
+    command: tunnel --no-autoupdate --url http://n8n:5678
+
 volumes:
   postgres_data:
   n8n_data:
