@@ -639,7 +639,7 @@
       "parameters": {
         "modelName": "models/gemini-2.5-flash",
         "options": {
-          "maxOutputTokens": 2048,
+          "maxOutputTokens": 8192,
           "temperature": 0.2
         }
       },

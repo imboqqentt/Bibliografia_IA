@@ -123,7 +123,10 @@ PROVEEDORES = {
         "parametros": {
             "model": {"__rl": True, "value": "claude-sonnet-4-6", "mode": "list",
                       "cachedResultName": "claude-sonnet-4-6"},
-            "options": {"maxTokensToSample": 2048, "temperature": 0.2},
+            # Holgura para el resumen (~800 tokens) mas el reintento de
+            # autoFix. Claude no descuenta el razonamiento de este limite,
+            # asi que no hace falta el techo alto que necesita Gemini.
+            "options": {"maxTokensToSample": 4096, "temperature": 0.2},
         },
         "credenciales": {"anthropicApi": {"id": "REEMPLAZAR",
                                           "name": "Anthropic Memoria"}},
@@ -141,7 +144,27 @@ PROVEEDORES = {
             # gemini-2.5-flash esta en la capa gratuita y tiene contexto de
             # sobra para los 45.000 caracteres que manda el flujo.
             "modelName": "models/gemini-2.5-flash",
-            "options": {"maxOutputTokens": 2048, "temperature": 0.2},
+            # OJO CON maxOutputTokens: 8192 no es exageracion.
+            #
+            # Gemini cuenta los tokens de razonamiento DENTRO de este limite,
+            # al reves que otros proveedores, que los llevan aparte. Y
+            # gemini-2.5-flash trae el razonamiento encendido de fabrica con
+            # presupuesto dinamico: en una tarea no trivial se gasta la mayor
+            # parte de lo que le des.
+            #
+            # Con 2048 el modelo pensaba ~1700 y devolvia un fragmento cortado
+            # a media frase, que el parser rechazaba con "Model output doesn't
+            # fit required format". El resumen se perdia y la referencia
+            # quedaba PENDIENTE sin explicacion.
+            #
+            # El nodo de n8n no expone el thinking budget ("not supported due
+            # to SDK limitations"), asi que subir el techo es la unica palanca.
+            # El resumen en si son ~800 tokens; el resto es colchon.
+            #
+            # Si aun asi se corta, cambia el modelo a
+            # models/gemini-2.5-flash-lite, que es el unico de la familia que
+            # trae el razonamiento APAGADO por defecto.
+            "options": {"maxOutputTokens": 8192, "temperature": 0.2},
         },
         # Ojo con el nombre: la credencial se llama "Google Gemini(PaLM) Api"
         # en la interfaz, por razones historicas. Es la correcta.

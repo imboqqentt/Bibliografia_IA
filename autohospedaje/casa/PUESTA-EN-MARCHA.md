@@ -800,6 +800,30 @@ docker compose up -d n8n
 > tomar un `.env` nuevo hay que recrear el contenedor, que es lo que hace
 > `up -d`.
 
+### El resumen queda PENDIENTE aunque el texto se haya leído bien
+
+Si el nodo `Formato JSON del resumen` dice *"Model output doesn't fit required
+format"* y en su INPUT ves **prosa cortada a media frase** en vez de un JSON,
+el modelo se quedó sin presupuesto de salida.
+
+**Gemini cuenta los tokens de razonamiento dentro de `maxOutputTokens`**, al
+revés que otros proveedores, que los llevan aparte. Y `gemini-2.5-flash` trae
+el razonamiento encendido de fábrica con presupuesto dinámico: en una tarea no
+trivial se gasta la mayor parte de lo que le des. Con un techo de 2048, el
+modelo piensa ~1700 y devuelve un fragmento truncado.
+
+Arreglo, en el sub-nodo **`Modelo Gemini`** → *Options* → **Maximum Number of
+Tokens = 8192**. El resumen en sí son unos 800 tokens; el resto es colchón para
+el razonamiento y para el reintento de `autoFix`.
+
+El nodo de n8n no expone el *thinking budget* —"not supported due to SDK
+limitations"— así que subir el techo es la única palanca. Si aun así se corta,
+cambia el modelo a **`models/gemini-2.5-flash-lite`**, el único de la familia
+que trae el razonamiento **apagado** por defecto.
+
+> Con Anthropic esto no pasa: Claude no descuenta el razonamiento de ese
+> límite. Por eso `workflow.json` lleva 4096 y el de Gemini 8192.
+
 ### El nodo de Telegram nunca manda texto plano
 
 Si ves *`Bad Request: can't parse entities: Can't find end of the entity

@@ -644,7 +644,7 @@
           "cachedResultName": "claude-sonnet-4-6"
         },
         "options": {
-          "maxTokensToSample": 2048,
+          "maxTokensToSample": 4096,
           "temperature": 0.2
         }
       },
