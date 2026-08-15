@@ -662,7 +662,8 @@
     {
       "parameters": {
         "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"resumen\",\n    \"descripcion_breve\",\n    \"palabras_clave\",\n    \"utilidad\"\n  ],\n  \"additionalProperties\": false,\n  \"properties\": {\n    \"resumen\": {\n      \"type\": \"string\",\n      \"description\": \"Resumen en espanol de 200 a 300 palabras: objetivo, metodo, resultados y limitaciones.\"\n    },\n    \"descripcion_breve\": {\n      \"type\": \"string\",\n      \"description\": \"Una sola linea, maximo 15 palabras, sin punto final.\"\n    },\n    \"palabras_clave\": {\n      \"type\": \"array\",\n      \"minItems\": 3,\n      \"maxItems\": 5,\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Entre 3 y 5 terminos tecnicos en espanol.\"\n    },\n    \"utilidad\": {\n      \"type\": \"string\",\n      \"description\": \"Una linea sobre su utilidad en una memoria de Ingenieria Mecanica.\"\n    }\n  }\n}"
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"resumen\",\n    \"descripcion_breve\",\n    \"palabras_clave\",\n    \"utilidad\"\n  ],\n  \"properties\": {\n    \"resumen\": {\n      \"type\": \"string\",\n      \"description\": \"Resumen en espanol de 200 a 300 palabras: objetivo, metodo, resultados y limitaciones.\"\n    },\n    \"descripcion_breve\": {\n      \"type\": \"string\",\n      \"description\": \"Una sola linea, maximo 15 palabras, sin punto final.\"\n    },\n    \"palabras_clave\": {\n      \"type\": \"array\",\n      \"minItems\": 3,\n      \"maxItems\": 5,\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Entre 3 y 5 terminos tecnicos en espanol.\"\n    },\n    \"utilidad\": {\n      \"type\": \"string\",\n      \"description\": \"Una linea sobre su utilidad en una memoria de Ingenieria Mecanica.\"\n    }\n  }\n}",
+        "autoFix": true
       },
       "id": "9c7bd908-c500-5258-81a4-ca286e8c8414",
       "name": "Formato JSON del resumen",
@@ -671,7 +672,8 @@
       "position": [
         3560,
         560
-      ]
+      ],
+      "notes": "Auto-Fix Format activado: un JSON mal formado se reintenta en vez de perder el resumen."
     },
     {
       "parameters": {

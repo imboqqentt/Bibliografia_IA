@@ -254,7 +254,16 @@ TEXTO DE LA FUENTE
 ESQUEMA_RESUMEN = json.dumps({
     "type": "object",
     "required": ["resumen", "descripcion_breve", "palabras_clave", "utilidad"],
-    "additionalProperties": False,
+    # A proposito SIN "additionalProperties": false.
+    #
+    # El parser valida la respuesta contra este esquema y, si no calza, el nodo
+    # falla entero y la referencia se queda sin resumen. Con la restriccion, un
+    # modelo que agregue un campo de mas —cosa que hacen— tumbaba todo el
+    # resumen por un dato que "Consolidar registro" ni siquiera lee: ese nodo
+    # toma los cuatro campos por nombre y descarta el resto.
+    #
+    # Fallar por un extra inofensivo es un mal negocio. Los cuatro que importan
+    # siguen siendo obligatorios via "required".
     "properties": {
         "resumen": {
             "type": "string",
@@ -496,7 +505,22 @@ nodes.append(nodo_modelo())
 nodes.append(node(
     "Formato JSON del resumen", "@n8n/n8n-nodes-langchain.outputParserStructured", 1.2,
     (3560, 560),
-    {"schemaType": "manual", "inputSchema": ESQUEMA_RESUMEN},
+    {
+        "schemaType": "manual",
+        "inputSchema": ESQUEMA_RESUMEN,
+        # autoFix viene en false de fabrica: si el modelo devuelve algo que no
+        # calza —lo tipico es envolver el JSON en ```json ... ``` o agregar una
+        # frase antes— el parser tira error y la referencia se queda sin
+        # resumen.
+        #
+        # En true, n8n hace UNA llamada extra al modelo pasandole la salida
+        # mala y el error, para que la corrija. Solo se gasta cuando el primer
+        # intento fallo, asi que en la practica es gratis y convierte un fallo
+        # duro en un reintento.
+        "autoFix": True,
+    },
+    notes="Auto-Fix Format activado: un JSON mal formado se reintenta en vez de "
+          "perder el resumen.",
 ))
 
 nodes.append(code_node("Consolidar registro", "06-consolidar-registro.js", (3800, 400),
