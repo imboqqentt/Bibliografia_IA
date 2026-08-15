@@ -132,6 +132,41 @@ check('el texto extraido no conserva etiquetas HTML', !texto1.texto_fuente.inclu
 check('detecta texto suficiente', texto1.texto_suficiente === true,
   `longitud=${texto1.longitud_texto}`);
 
+// --- Pagina de bloqueo: no debe alimentar la busqueda por titulo ----------
+//
+// Caso real de mdpi.com detras de Cloudflare. Sin este filtro, "Access Denied"
+// se buscaba en Crossref, que devolvia un articulo REAL con ese nombre, y la
+// referencia quedaba con autores, anio y revista creibles y equivocados.
+// Metadatos falsos son peor que metadatos ausentes.
+salida = correr('01-normalizar-entrada.js', [{
+  message: { chat: { id: 123456789 }, text: 'https://www.mdpi.com/2071-1050/13/17/9880' },
+}], {});
+const entradaBloqueo = salida[0].json;
+
+const htmlBloqueo = '<html><head><title>Access Denied</title></head><body>'
+  + '<h1>Access Denied</h1><p>You do not have permission to access this resource.</p>'
+  + '</body></html>';
+
+salida = correr('02-preparar-texto.js', [{ data: htmlBloqueo }], {
+  'Normalizar entrada': entradaBloqueo,
+});
+const textoBloqueo = salida[0].json;
+
+check('pagina de bloqueo: no se usa su <title> como titulo',
+  textoBloqueo.titulo_pagina === '', textoBloqueo.titulo_pagina);
+check('pagina de bloqueo: no queda titulo para buscar en Crossref',
+  textoBloqueo.titulo_hint === '', textoBloqueo.titulo_hint);
+check('pagina de bloqueo: se deja constancia de lo descartado',
+  textoBloqueo.titulo_descartado === 'Access Denied', textoBloqueo.titulo_descartado);
+check('pagina de bloqueo: el motivo lo explica',
+  textoBloqueo.motivo_sin_texto.includes('bloqueo'), textoBloqueo.motivo_sin_texto);
+
+// El filtro no puede comerse un titulo legitimo: el del caso 1 pasa igual,
+// porque viene de <meta citation_title>, que la pone la editorial.
+check('un titulo legitimo de la editorial sigue sirviendo',
+  texto1.titulo_pagina === 'Performance intensification of regeneration process',
+  texto1.titulo_pagina);
+
 salida = correr('04-normalizar-metadatos.js', [crossrefArticulo], {
   'Preparar texto': texto1,
 });

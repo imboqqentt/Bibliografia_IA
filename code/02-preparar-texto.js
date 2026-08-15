@@ -106,6 +106,70 @@ function limpiarDoi(bruto) {
   return /^10\.\d{4,9}\/\S+$/.test(doi) ? doi : null;
 }
 
+/**
+ * Titulos de paginas de bloqueo, error y captcha.
+ *
+ * POR QUE ESTO IMPORTA MAS DE LO QUE PARECE
+ *
+ *   Cuando la URL no trae el DOI, el titulo de la pagina es lo unico con que
+ *   se busca en Crossref. Si la editorial devolvio una pagina de bloqueo, ese
+ *   "titulo" es basura... pero basura que Crossref igual va a matchear con
+ *   ALGO, porque su busqueda por titulo siempre devuelve candidatos.
+ *
+ *   Caso real: mdpi.com detras de Cloudflare responde 403 con
+ *   <title>Access Denied</title>. Crossref encontro un articulo de verdad
+ *   titulado "Access Denied", de otra revista y otro autor, con similitud
+ *   suficiente para pasar el umbral. La referencia quedo registrada con
+ *   autores, anio y revista impecables y completamente ajenos a la fuente.
+ *
+ *   Una referencia sin metadatos se nota y se arregla. Una con metadatos
+ *   creibles pero equivocados se cuela hasta la bibliografia final.
+ */
+const TITULOS_DE_BLOQUEO = [
+  /^\s*access denied/i,
+  /^\s*acceso denegado/i,
+  /just a moment/i,
+  /attention required/i,
+  /^\s*(error\s*)?4\d{2}\b/,
+  /^\s*(error\s*)?5\d{2}\b/,
+  /\bforbidden\b/i,
+  /not found/i,
+  /no encontrad[oa]/i,
+  /captcha/i,
+  /are you (a )?(human|robot)/i,
+  /verificaci[oó]n de seguridad/i,
+  /security check/i,
+  /bot detection/i,
+  /cloudflare/i,
+  /please enable (javascript|cookies)/i,
+  /checking your browser/i,
+  /request rejected/i,
+  /service unavailable/i,
+  /temporarily unavailable/i,
+  /^\s*redirecting/i,
+  /^\s*loading\b/i,
+];
+
+// Una pagina de bloqueo es corta. Este umbral es deliberadamente mas exigente
+// que MIN_CHARS_UTILES: para RESUMIR basta con poco texto, pero para confiar
+// en un titulo que va a determinar los metadatos hay que estar mas seguro.
+const MIN_CHARS_PARA_CONFIAR_EN_TITULO = 3000;
+
+/**
+ * Decide si un <title> / og:title sirve para buscar en Crossref.
+ *
+ * No aplica a citation_title ni dc.title: esas las pone la editorial en la
+ * pagina del articulo, asi que si estan presentes se creen sin mas.
+ */
+function esTituloConfiable(titulo, html) {
+  const t = String(titulo || '').trim();
+  if (t.length < 12) return false;
+  if (TITULOS_DE_BLOQUEO.some((re) => re.test(t))) return false;
+  // Pagina demasiado corta: no es la del articulo, sea lo que sea.
+  if (String(html || '').length < MIN_CHARS_PARA_CONFIAR_EN_TITULO) return false;
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Proceso
 // ---------------------------------------------------------------------------
@@ -126,6 +190,7 @@ const pareceHtml = /<\s*(html|head|body|meta|div|p)\b/i.test(contenido.slice(0, 
 let texto = '';
 let doiDePagina = null;
 let tituloDePagina = '';
+let tituloDescartado = '';
 let fuenteTexto = 'ninguna';
 
 if (textoPdf) {
@@ -148,13 +213,38 @@ if (textoPdf) {
     if (m) doiDePagina = limpiarDoi(m[1]);
   }
 
+  // --- titulo de la pagina, en dos niveles de confianza ---
+  //
+  // citation_title y dc.title las pone la editorial en la pagina del
+  // articulo: si estan, se creen sin mas.
+  //
+  // og:title y <title> los tiene CUALQUIER pagina, incluidas las de bloqueo,
+  // asi que pasan por el filtro de esTituloConfiable().
   tituloDePagina =
     leerMeta(contenido, 'citation_title') ||
-    leerMeta(contenido, 'og:title') ||
     leerMeta(contenido, 'dc.title') ||
-    (contenido.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
-      ? decodificarEntidades(RegExp.$1).trim()
-      : '');
+    '';
+
+  if (!tituloDePagina) {
+    // OJO: aca habia un RegExp.$1 y era un error.
+    //
+    // RegExp.$1 no es "el grupo del match que acabo de hacer": es una
+    // propiedad estatica GLOBAL que reescribe cualquier operacion regex del
+    // proceso, incluidas las que hace leerMeta() en la linea de al lado. Si
+    // el match del <title> fallaba, en vez de quedar vacio se leia el grupo
+    // que hubiera dejado la ultima expresion regular ejecutada, fuera cual
+    // fuera. Lo destapo el test de la pagina de bloqueo, que recibia el
+    // titulo de OTRO caso de prueba.
+    //
+    // El resultado del match se guarda y se usa, y punto.
+    const enTitleTag = contenido.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const candidato =
+      leerMeta(contenido, 'og:title') ||
+      (enTitleTag ? decodificarEntidades(enTitleTag[1]).trim() : '');
+
+    if (esTituloConfiable(candidato, contenido)) tituloDePagina = candidato;
+    else if (candidato) tituloDescartado = candidato;
+  }
 
   texto = htmlATexto(contenido);
 } else if (contenido) {
@@ -173,6 +263,11 @@ if (!estado.hay_url_descarga) motivo = 'No se recibio URL ni DOI descargable.';
 else if (!contenido) motivo = 'La descarga no devolvio contenido (paywall, 403, timeout o binario no soportado).';
 else if (!textoSuficiente) motivo = `Texto extraido demasiado corto (${longitudBruta} caracteres); probable paywall o pagina de redireccion.`;
 
+if (tituloDescartado) {
+  motivo += ` La pagina devolvio "${tituloDescartado}", que parece un bloqueo:`
+    + ' no se uso como titulo para no inventar metadatos.';
+}
+
 // El DOI de la pagina manda por sobre el que veniamos arrastrando solo si no habia
 const doiFinal = estado.doi || doiDePagina || '';
 
@@ -184,6 +279,7 @@ return [{
     doi_recuperado_de_pagina: Boolean(!estado.doi && doiDePagina),
     titulo_hint: estado.titulo_hint || tituloDePagina || '',
     titulo_pagina: tituloDePagina,
+    titulo_descartado: tituloDescartado,
 
     texto_fuente: texto,
     longitud_texto: longitudBruta,
