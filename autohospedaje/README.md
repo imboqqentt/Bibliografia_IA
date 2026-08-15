@@ -32,7 +32,7 @@ automatización venía a evitar.
 Además, la [documentación de n8n](https://docs.n8n.io/deploy/host-n8n/install-options/install-with-docker)
 dice explícitamente que el túnel es *"a convenience tool for local development"*
 y que la URL se imprime en cada arranque — o sea, **cambia cada vez que
-reinicias**, y cada cambio obliga a reactivar el workflow para que Telegram
+reinicias**, y cada cambio obliga a volver a publicar el workflow para que Telegram
 vuelva a registrar el webhook.
 
 **Recomendación:** notebook para la fase de armado, Raspberry para producción.
@@ -449,7 +449,7 @@ Anota la **versión de n8n** que aparece en `Help → About`.
 ### Opción A — túnel temporal (sólo para probar)
 
 Levanta el túnel, copia la URL que imprime, pégala en `WEBHOOK_URL` del `.env`
-y reinicia con `docker compose up -d`. Luego desactiva y reactiva el workflow
+y reinicia con `docker compose up -d`. Luego despublica y vuelve a publicar el workflow
 en la interfaz para que Telegram registre el webhook nuevo.
 
 Repite ese baile cada vez que reinicies. Por eso no sirve como solución
@@ -490,7 +490,7 @@ N8N_HOST=n8n.tudominio.cl
 N8N_PROTOCOL=https
 ```
 
-7. `docker compose up -d` y reactiva el workflow.
+7. `docker compose up -d` y vuelve a publicar el workflow.
 
 Lo que **no** deberías hacer es abrir el puerto 5678 directo a internet desde
 el router. Quedaría un n8n con tus credenciales de Google y GitHub expuesto sin
@@ -535,7 +535,7 @@ Cuando el flujo ya funcione en el notebook:
 3. Cambia `WEBHOOK_URL`, `N8N_HOST` y `N8N_PROTOCOL` a las del túnel
    permanente.
 4. `docker compose up -d` en la Raspberry.
-5. Reactiva el workflow para que Telegram registre el webhook nuevo.
+5. Vuelve a publicar el workflow para que Telegram registre el webhook nuevo.
 6. **Apaga n8n en el notebook.** Dos instancias con el mismo bot se pelean el
    webhook: Telegram sólo entrega a una, y no necesariamente a la que esperas.
 

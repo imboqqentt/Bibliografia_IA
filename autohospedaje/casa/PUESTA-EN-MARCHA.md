@@ -498,7 +498,7 @@ Al cambiar `N8N_DOMINIO`, n8n reinició. Entra por
 `https://n8n.tudominio.me` y:
 
 1. **Confirma que el pin del Telegram Trigger esté quitado.**
-2. **Activa el workflow** con el interruptor de arriba a la derecha. Recién ahí
+2. **Publica el workflow** con el boton *Publish* de arriba a la derecha. Recién ahí
    n8n le registra el webhook a Telegram.
 
 Ahora las pruebas de verdad, desde el celular:

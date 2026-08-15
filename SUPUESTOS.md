@@ -9,6 +9,18 @@ tocar a mano después de importar.
 
 ### Sobre tu entorno
 
+0. **Probado contra n8n 2.34.6.** Los cambios de n8n 2.0 que afectan a este
+   flujo ya están contemplados:
+   - `N8N_BLOCK_ENV_ACCESS_IN_NODE` cambió su default a `true`. Los tres
+     compose lo fuerzan a `false`, que es lo que necesita el nodo
+     *Chat autorizado?* para leer `$env.BIBLIO_TELEGRAM_CHAT_ID`.
+   - `N8N_DEFAULT_BINARY_DATA_MODE` ya no tiene modo `default`; ahora es
+     `filesystem`, que es justo lo que los compose ya declaraban.
+   - El interruptor *Activar/Desactivar* pasó a llamarse **Publicar/Despublicar**.
+     Las guías usan la nomenclatura nueva.
+   - Ninguno de los nodos retirados en 2.0 (Spontit, crowd.dev, Kitemaker,
+     Automizy) se usa acá.
+
 1. **n8n propio o Cloud, versión reciente.** Los nodos van con estas versiones de
    esquema: `telegramTrigger` 1.2, `if` 2.2, `code` 2, `httpRequest` 4.2,
    `extractFromFile` 1.1, `googleSheets` 4.5, `github` 1.1, `googleDocs` 2,

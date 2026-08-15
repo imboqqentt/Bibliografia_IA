@@ -64,6 +64,13 @@ BIBLIO_TELEGRAM_CHAT_ID=<tu chat_id numérico>
 El nodo **Chat autorizado?** compara el remitente contra esa variable y descarta
 cualquier otro. Falla cerrado: si la variable no existe, no pasa nadie.
 
+> **Desde n8n 2.0** (abril 2026) el acceso a variables de entorno viene
+> **bloqueado por defecto**: `N8N_BLOCK_ENV_ACCESS_IN_NODE` pasó de `false` a
+> `true`. Los tres `docker-compose.yml` de este repositorio ya lo ponen
+> explícitamente en `false`, así que si autohospedas con ellos no tienes que
+> hacer nada. Si instalas n8n por tu cuenta, tienes que definir esa variable o
+> el nodo *Chat autorizado?* va a fallar en cada mensaje.
+
 > **En n8n Cloud** el acceso a `$env` viene bloqueado. Ahí abre el nodo
 > **Chat autorizado?** y reemplaza el lado derecho de la condición por tu chat_id
 > literal. Es tu copia privada del flujo, no el JSON que se comparte, así que no hay
@@ -87,7 +94,8 @@ cualquier otro. Falla cerrado: si la variable no existe, no pasa nadie.
 6. Escríbele `/start` al bot desde tu celular. Telegram no permite que un bot inicie
    la conversación, así que este paso es obligatorio para que pueda responderte.
 
-El nodo Telegram Trigger registra el webhook solo al activar el workflow. Si usas n8n
+El nodo Telegram Trigger registra el webhook solo al **publicar** el workflow
+(en n8n 1.x ese boton se llamaba *Activar*). Si usas n8n
 local, necesitas un túnel público (`n8n start --tunnel`) para que Telegram alcance tu
 instancia.
 
@@ -205,7 +213,7 @@ Para tenerlo ordenado, crea una carpeta *Notas de lectura*, copia su ID desde la
    - `REEMPLAZAR_ID_DE_LA_PLANILLA` en los dos nodos de Sheets;
    - `REEMPLAZAR_USUARIO_GITHUB` y `REEMPLAZAR_REPO_OVERLEAF` en los dos nodos de GitHub;
    - el `folderId` del nodo **Crear nota**, si quieres una carpeta específica.
-5. Guarda y activa el workflow.
+5. Guarda y **publica** el workflow con el boton *Publish* de arriba a la derecha.
 
 ---
 
