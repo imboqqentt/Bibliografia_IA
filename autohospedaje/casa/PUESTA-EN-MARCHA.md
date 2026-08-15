@@ -697,6 +697,7 @@ Para automatizarlo cada domingo, `crontab -e`:
 | El dominio no resuelve | Los nameservers aún no propagan. `dig +short NS tudominio.me` |
 | n8n carga pero el bot no responde | El workflow no está publicado, o `N8N_URL_PUBLICA` no calza con el hostname del túnel |
 | El bot ignora tus mensajes | `BIBLIO_TELEGRAM_CHAT_ID` mal puesto. Falla cerrado a propósito |
+| **Chat autorizado?** se va siempre por `false` | Ver abajo: hay tres causas y se distinguen a simple vista |
 | **Avisar duplicado / Confirmar por Telegram:** *400 — can't parse entities* | Falta `Parse Mode` en el nodo. Ver abajo |
 | El flujo usa siempre el mismo link | Quedó el pin puesto en el Telegram Trigger |
 | Un nodo con triángulo de advertencia | Versión de n8n distinta. Mándame cuál es |
@@ -737,6 +738,50 @@ por tabulaciones, Sheets la reparte sola en las 14 columnas):
 ```
 fecha_ingreso	citation_key	tipo	autores	anio	titulo	publicacion	doi	url	descripcion_breve	capitulo_previsto	estado	estado_resumen	link_nota
 ```
+
+### Cuando `Chat autorizado?` siempre da false
+
+El nodo compara el `chat.id` del mensaje contra `$env.BIBLIO_TELEGRAM_CHAT_ID`.
+Falla cerrado a propósito, así que cualquier problema se ve igual: nada pasa.
+Pero las causas se distinguen fácil.
+
+**Primero, lo que no es un problema.** Si abres el nodo *sin haberlo
+ejecutado*, el lado derecho dice *"not accessible via UI, please run node"*.
+Es normal: el editor no tiene acceso a las variables del proceso, sólo el motor
+cuando corre. Fíjate en los valores **después** de ejecutar.
+
+**El dato que separa las causas:** cuando el acceso a variables de entorno está
+bloqueado, `$env` **lanza un error**, no devuelve vacío
+(`workflow-data-proxy-env-provider.ts`). Así que un `false` limpio, sin error
+rojo, significa que las dos partes se resolvieron bien y simplemente no
+coinciden.
+
+Corre el flujo y abre el nodo. Debajo de la condición se ven los dos lados ya
+resueltos:
+
+| Lo que ves | Causa |
+|---|---|
+| Izquierda `123456789`, derecha tu id | Los datos pineados traen el id de ejemplo. Cambia **los dos**, el de `from` y el de `chat` |
+| Izquierda con tu id, derecha vacía | La variable no llegó al contenedor |
+| Derecha con *access to env vars denied* | `N8N_BLOCK_ENV_ACCESS_IN_NODE` no quedó en `false` |
+
+Para los dos últimos:
+
+```bash
+docker compose exec n8n printenv BIBLIO_TELEGRAM_CHAT_ID N8N_BLOCK_ENV_ACCESS_IN_NODE
+```
+
+Tiene que responder tu chat\_id y `false`. Si no, corrige el `.env` y recrea el
+contenedor:
+
+```bash
+docker compose up -d n8n
+```
+
+> **`docker compose restart` no sirve acá.** Reinicia el proceso dentro del
+> contenedor que ya existe, con las variables que tenía cuando se creó. Para
+> tomar un `.env` nuevo hay que recrear el contenedor, que es lo que hace
+> `up -d`.
 
 ### El nodo de Telegram nunca manda texto plano
 
