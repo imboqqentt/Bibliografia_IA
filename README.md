@@ -180,10 +180,36 @@ En [console.cloud.google.com](https://console.cloud.google.com):
 2. **APIs & Services → Library**: habilita *Google Sheets API*, *Google Docs API* y
    *Google Drive API*.
 3. **Credentials → Create credentials → OAuth client ID → Web application**.
-4. En *Authorized redirect URIs* pega la URL que te muestra n8n al crear la credencial
-   (algo como `https://tu-n8n/rest/oauth2-credential/callback`).
+4. En *Authorized redirect URIs* pega la URL que te muestra n8n al crear la credencial.
 5. Usa el mismo Client ID y Client Secret para las dos credenciales de n8n (Sheets y
    Docs) y autoriza cada una con el botón *Sign in with Google*.
+
+> ### Las dos trampas de Google
+>
+> **1. Publica la pantalla de consentimiento, o todo se cae en 7 días.**
+>
+> Mientras el *publishing status* de la pantalla de consentimiento esté en
+> **Testing**, Google **revoca los tokens de refresco a los 7 días**. El flujo
+> te va a funcionar perfecto una semana y después va a empezar a fallar con
+> `invalid_grant`, justo cuando ya dejaste de mirarlo.
+>
+> La solución: **APIs & Services → OAuth consent screen → Publish app**, para
+> pasarlo a *In Production*. Vas a ver un aviso de "aplicación no verificada" al
+> autorizar — es esperado y puedes continuar, porque eres el único usuario de tu
+> propia aplicación. Con el estado en producción, los tokens dejan de expirar.
+>
+> **2. Vas a necesitar DOS redirect URIs.**
+>
+> La URL de callback cambia según cómo entres a n8n. Agrega ambas desde ya y te
+> ahorras rehacer las credenciales cuando montes el túnel:
+>
+> ```
+> http://localhost:5678/rest/oauth2-credential/callback
+> https://n8n.tudominio.cl/rest/oauth2-credential/callback
+> ```
+>
+> Google acepta `http://` sólo para `localhost`; para cualquier otro dominio
+> exige `https://`.
 
 ### Carpeta de notas
 
