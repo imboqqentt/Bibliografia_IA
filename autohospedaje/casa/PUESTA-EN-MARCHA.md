@@ -712,13 +712,30 @@ que **al cambiar la planilla o la hoja n8n lo reinicializa y vuelve al valor por
 defecto del nodo, que es *Map Each Column Manually***. Sin columnas definidas a
 mano, el nodo tira ese mensaje.
 
-Arreglo: abre el nodo y en **Mapping Column Mode** vuelve a elegir **Map
-Automatically**. Nada más.
+**Arreglo.** Abre el nodo y busca el desplegable `Mapping Column Mode`, justo
+debajo del selector de hoja. Cambia `Map Each Column Manually` por **`Map
+Automatically`**.
 
-Si después de eso alguna columna llega vacía, el problema es otro: los
-encabezados de la fila 1 no calzan exactamente con los 14 nombres. El calce es
+**El orden importa:** el nodo declara `loadOptionsDependsOn: ['sheetName.value']`,
+así que cada vez que tocas la pestaña el modo se resetea otra vez. Deja quietas
+la planilla y la pestaña primero, y elige `Map Automatically` al final.
+
+Si el desplegable no aparece, es que la hoja no está bien seleccionada: ese
+bloque está oculto hasta entonces (`untilSheetSelected`). Vuelve a elegir
+planilla y pestaña desde *From list*, espera a que cargue, y aparece.
+
+Para confirmar que quedó: selecciona el nodo, `Ctrl+C`, y pégalo en un editor de
+texto. Tiene que decir `"mappingMode": "autoMapInputData"`.
+
+Si después de eso alguna columna llega **vacía sin dar error**, el problema es
+otro: los encabezados de la fila 1 no calzan con los 14 nombres. El calce es
 literal —minúsculas, guiones bajos, sin espacios de sobra al final—, así que
-conviene copiarlos y pegarlos desde el README en vez de escribirlos.
+copia y pega esta línea en la celda A1 en vez de escribirla a mano (va separada
+por tabulaciones, Sheets la reparte sola en las 14 columnas):
+
+```
+fecha_ingreso	citation_key	tipo	autores	anio	titulo	publicacion	doi	url	descripcion_breve	capitulo_previsto	estado	estado_resumen	link_nota
+```
 
 ## Dónde te puedo ayudar
 
