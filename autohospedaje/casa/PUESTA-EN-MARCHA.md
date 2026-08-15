@@ -697,6 +697,7 @@ Para automatizarlo cada domingo, `crontab -e`:
 | El dominio no resuelve | Los nameservers aún no propagan. `dig +short NS tudominio.me` |
 | n8n carga pero el bot no responde | El workflow no está publicado, o `N8N_URL_PUBLICA` no calza con el hostname del túnel |
 | El bot ignora tus mensajes | `BIBLIO_TELEGRAM_CHAT_ID` mal puesto. Falla cerrado a propósito |
+| **Avisar duplicado / Confirmar por Telegram:** *400 — can't parse entities* | Falta `Parse Mode` en el nodo. Ver abajo |
 | El flujo usa siempre el mismo link | Quedó el pin puesto en el Telegram Trigger |
 | Un nodo con triángulo de advertencia | Versión de n8n distinta. Mándame cuál es |
 | **Agregar fila consolidado:** *At least one value has to be added under 'Values to Send'* | El modo de mapeo se reseteó a *Map Each Column Manually*. Ver abajo |
@@ -736,6 +737,44 @@ por tabulaciones, Sheets la reparte sola en las 14 columnas):
 ```
 fecha_ingreso	citation_key	tipo	autores	anio	titulo	publicacion	doi	url	descripcion_breve	capitulo_previsto	estado	estado_resumen	link_nota
 ```
+
+### El nodo de Telegram nunca manda texto plano
+
+Si ves *`Bad Request: can't parse entities: Can't find end of the entity
+starting at byte offset N`*, no es tu texto: es que **el nodo elige formato por
+ti**. En `GenericFunctions.ts` del nodo de Telegram está esto:
+
+```js
+if (!additionalFields.parse_mode) {
+    additionalFields.parse_mode = 'Markdown';
+}
+```
+
+O sea que si no eliges modo, sale como **Markdown legacy**. Y no hay opción
+"sin formato" en el desplegable: dejarlo vacío tampoco sirve, porque `''` es
+falsy y cae en ese mismo `if`.
+
+En Markdown legacy, un solo guion bajo suelto abre una cursiva que nunca se
+cierra. Los enlaces de Google Docs traen guiones bajos casi siempre, así que el
+mensaje reventaba de forma bastante consistente.
+
+**Arreglo, en los dos nodos de envío** (`Avisar duplicado` y `Confirmar por
+Telegram`):
+
+1. Abre el nodo, despliega **Additional Fields → Add Field → Parse Mode**.
+2. Elige **HTML**.
+3. Reemplaza el texto por el del archivo del repo, que ya trae escapado cada
+   valor interpolado.
+
+Se elige HTML porque es el modo que Telegram recomienda y sólo tiene tres
+caracteres especiales: `<`, `>` y `&`, que hay que reemplazar por `&lt;`,
+`&gt;` y `&amp;`. Un título como *"Heat & Mass Transfer"* o una URL con
+`?a=1&b=2` los traen, así que el flujo los escapa siempre — el guion bajo, que
+era el que rompía, en HTML no significa nada.
+
+> Si prefieres no volver a importar el workflow entero para no perder las
+> credenciales ya conectadas: basta con agregar el `Parse Mode = HTML` y pegar
+> el texto nuevo en esos dos nodos. Los demás no cambian.
 
 ## Dónde te puedo ayudar
 

@@ -553,10 +553,11 @@
     {
       "parameters": {
         "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
-        "text": "=Ya registrado, citation key: {{ $json.citation_key_existente }}\n\n{{ $json.fila_duplicada_titulo }}\n{{ $json.fila_duplicada_link_nota }}",
+        "text": "=Ya registrado, citation key: {{ String($json.citation_key_existente ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}\n\n{{ String($json.fila_duplicada_titulo ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}\n{{ String($json.fila_duplicada_link_nota ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
         "additionalFields": {
           "appendAttribution": false,
-          "disable_web_page_preview": true
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
         }
       },
       "id": "6267dd7c-a573-5264-9b61-4a5f4db3890e",
@@ -906,10 +907,11 @@
     {
       "parameters": {
         "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
-        "text": "=Registrado.\n\nCitation key: {{ $('Construir bib actualizado').first().json.citation_key }}\nTipo BibTeX: {{ $('Construir bib actualizado').first().json.bibtex_tipo }}\nResumen: {{ $('Construir bib actualizado').first().json.estado_resumen }}{{ $('Construir bib actualizado').first().json.metadatos_manuales === 'SI' ? '\\n\\nOJO: metadatos sin Crossref, revisalos a mano.' : '' }}\n\nNota: {{ $('Preparar fila').first().json.link_nota }}",
+        "text": "=Registrado.\n\nCitation key: {{ String($('Construir bib actualizado').first().json.citation_key ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}\nTipo BibTeX: {{ String($('Construir bib actualizado').first().json.bibtex_tipo ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}\nResumen: {{ String($('Construir bib actualizado').first().json.estado_resumen ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}{{ $('Construir bib actualizado').first().json.metadatos_manuales === 'SI' ? '\\n\\nOJO: metadatos sin Crossref, revisalos a mano.' : '' }}\n\nNota: {{ String($('Preparar fila').first().json.link_nota ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
         "additionalFields": {
           "appendAttribution": false,
-          "disable_web_page_preview": true
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
         }
       },
       "id": "839979a9-0bdf-5332-a775-e86deaa95abb",

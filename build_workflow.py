@@ -11,6 +11,7 @@ Uso:  python3 build_workflow.py                       -> workflow.json (Anthropi
 """
 
 import io
+import re
 import json
 import os
 import uuid
@@ -165,6 +166,51 @@ def nodo_modelo():
         credentials=LLM["credenciales"],
         notes=LLM["notas"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Mensajes de Telegram
+# ---------------------------------------------------------------------------
+# TRAMPA: el nodo de Telegram NUNCA manda texto plano.
+#
+# En addAdditionalFields() de nodes-base/nodes/Telegram/GenericFunctions.ts hay
+# esto:
+#
+#     if (!additionalFields.parse_mode) {
+#         additionalFields.parse_mode = 'Markdown';
+#     }
+#
+# O sea: si no eliges modo, el nodo te pone Markdown legacy por su cuenta. No
+# hay opcion "sin formato" en el desplegable, y dejarlo vacio no sirve porque
+# '' es falsy y cae en ese mismo if.
+#
+# Con Markdown legacy, un solo guion bajo suelto abre una cursiva que nunca se
+# cierra y Telegram responde 400 "can't parse entities". Los links de Google
+# Docs traen guiones bajos y guiones a menudo, asi que reventaba casi siempre.
+#
+# La salida es HTML, que es el modo que Telegram recomienda y donde solo tres
+# caracteres son especiales:
+#
+#     "All <, > and & symbols that are not a part of a tag or an HTML entity
+#      must be replaced with the corresponding HTML entities"
+#     -- https://core.telegram.org/bots/api#html-style
+#
+# Asi que va parse_mode HTML explicito y TODO valor interpolado pasa por
+# tg_esc(). Escapar de mas es inofensivo; escapar de menos rompe el mensaje.
+
+PARSE_MODE_TELEGRAM = "HTML"
+
+
+def tg_esc(expresion):
+    """Interpola un valor en un mensaje de Telegram escapando para HTML.
+
+    El orden importa: el & va primero, si no se re-escaparia el & de las
+    entidades que acaba de generar.
+    """
+    return ("{{ String(%s ?? '')"
+            ".replace(/&/g, '&amp;')"
+            ".replace(/</g, '&lt;')"
+            ".replace(/>/g, '&gt;') }}" % expresion)
 
 
 # ---------------------------------------------------------------------------
@@ -417,11 +463,13 @@ nodes.append(node(
     "Avisar duplicado", "n8n-nodes-base.telegram", 1.2, (3160, 160),
     {
         "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
-        "text": "=Ya registrado, citation key: {{ $json.citation_key_existente }}\n\n"
-                "{{ $json.fila_duplicada_titulo }}\n"
-                "{{ $json.fila_duplicada_link_nota }}",
+        "text": "=Ya registrado, citation key: "
+                + tg_esc("$json.citation_key_existente") + "\n\n"
+                + tg_esc("$json.fila_duplicada_titulo") + "\n"
+                + tg_esc("$json.fila_duplicada_link_nota"),
         "additionalFields": {"appendAttribution": False,
-                             "disable_web_page_preview": True},
+                             "disable_web_page_preview": True,
+                             "parse_mode": PARSE_MODE_TELEGRAM},
     },
     retryOnFail=True, maxTries=3,
     credentials={"telegramApi": {"id": "REEMPLAZAR", "name": "Telegram Bot Memoria"}},
@@ -547,14 +595,20 @@ nodes.append(node(
     {
         "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
         "text": "=Registrado.\n\n"
-                "Citation key: {{ $('Construir bib actualizado').first().json.citation_key }}\n"
-                "Tipo BibTeX: {{ $('Construir bib actualizado').first().json.bibtex_tipo }}\n"
-                "Resumen: {{ $('Construir bib actualizado').first().json.estado_resumen }}"
-                "{{ $('Construir bib actualizado').first().json.metadatos_manuales === 'SI' "
-                "? '\\n\\nOJO: metadatos sin Crossref, revisalos a mano.' : '' }}\n\n"
-                "Nota: {{ $('Preparar fila').first().json.link_nota }}",
+                "Citation key: "
+                + tg_esc("$('Construir bib actualizado').first().json.citation_key") + "\n"
+                "Tipo BibTeX: "
+                + tg_esc("$('Construir bib actualizado').first().json.bibtex_tipo") + "\n"
+                "Resumen: "
+                + tg_esc("$('Construir bib actualizado').first().json.estado_resumen")
+                # Este texto lo escribo yo entero, no lleva datos de fuera, asi
+                # que no necesita escapado.
+                + "{{ $('Construir bib actualizado').first().json.metadatos_manuales === 'SI' "
+                  "? '\\n\\nOJO: metadatos sin Crossref, revisalos a mano.' : '' }}\n\n"
+                "Nota: " + tg_esc("$('Preparar fila').first().json.link_nota"),
         "additionalFields": {"appendAttribution": False,
-                             "disable_web_page_preview": True},
+                             "disable_web_page_preview": True,
+                             "parse_mode": PARSE_MODE_TELEGRAM},
     },
     retryOnFail=True, maxTries=3,
     credentials={"telegramApi": {"id": "REEMPLAZAR", "name": "Telegram Bot Memoria"}},
@@ -669,6 +723,20 @@ workflow = {
 # ---------------------------------------------------------------------------
 nombres = [n["name"] for n in nodes]
 assert len(nombres) == len(set(nombres)), "Hay nombres de nodo repetidos"
+
+# Ningun nodo de Telegram puede quedarse sin parse_mode explicito: el nodo le
+# pone Markdown legacy por su cuenta cuando falta, y ahi cualquier guion bajo
+# de un link revienta el envio con un 400. Ver el comentario de tg_esc().
+for n in nodes:
+    if n["type"] == "n8n-nodes-base.telegram":
+        modo = n["parameters"].get("additionalFields", {}).get("parse_mode")
+        assert modo == PARSE_MODE_TELEGRAM, (
+            "%s no fija parse_mode=%s" % (n["name"], PARSE_MODE_TELEGRAM))
+        texto = n["parameters"].get("text", "")
+        # Cada interpolacion tiene que venir escapada.
+        crudas = [t for t in re.findall(r"\{\{(.*?)\}\}", texto, re.S)
+                  if "replace(/&/g" not in t and "?" not in t]
+        assert not crudas, "%s interpola sin escapar: %s" % (n["name"], crudas)
 
 for origen, salidas in connections.items():
     assert origen in nombres, "Origen inexistente: %s" % origen

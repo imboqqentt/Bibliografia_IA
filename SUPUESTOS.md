@@ -137,6 +137,17 @@ Ordenado de más a menos probable.
    > Automatically** en el nodo. Pasa igual en *Leer consolidado* si alguna vez le
    > cambias la hoja.
 
+   **Los mensajes de Telegram van con `parse_mode = HTML`, y no es opcional.** El nodo
+   fuerza `parse_mode = 'Markdown'` cuando el campo viene vacío
+   (`GenericFunctions.ts`, `addAdditionalFields`), y no existe un modo "texto plano":
+   dejarlo sin poner cae en ese mismo `if`. Con Markdown legacy, un guion bajo suelto
+   —los enlaces de Google Docs traen— abre una cursiva que nunca cierra y Telegram
+   devuelve *400 can't parse entities*. Por eso los dos nodos de envío fijan HTML
+   explícito y **todo** valor interpolado pasa por un escapado de `<`, `>` y `&`, que
+   son los únicos tres caracteres especiales de ese modo. `build_workflow.py` tiene una
+   aserción que falla si algún nodo de Telegram queda sin `parse_mode` o con una
+   interpolación cruda, para que no se cuele de nuevo.
+
 ### Bastante probable
 
 5. **La ruta del `.bib`.** Viene como `referencias.bib` en la raíz. Si en tu proyecto
