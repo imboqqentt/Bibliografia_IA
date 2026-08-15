@@ -604,7 +604,15 @@ nodes.append(node(
                 # Este texto lo escribo yo entero, no lleva datos de fuera, asi
                 # que no necesita escapado.
                 + "{{ $('Construir bib actualizado').first().json.metadatos_manuales === 'SI' "
-                  "? '\\n\\nOJO: metadatos sin Crossref, revisalos a mano.' : '' }}\n\n"
+                  "? '\\n\\nOJO: metadatos sin Crossref, revisalos a mano.' : '' }}"
+                # Cuando el resumen queda PENDIENTE, decir POR QUE. Sin esto hay
+                # que abrir n8n y revisar la ejecucion para enterarse de si fue
+                # un paywall, un 403 o un PDF escaneado.
+                + "{{ $('Construir bib actualizado').first().json.estado_resumen === 'PENDIENTE'"
+                  " ? '\\nMotivo: ' + String($('Construir bib actualizado').first()"
+                  ".json.motivo_sin_texto ?? 'sin detalle')"
+                  ".replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')"
+                  " : '' }}\n\n"
                 "Nota: " + tg_esc("$('Preparar fila').first().json.link_nota"),
         "additionalFields": {"appendAttribution": False,
                              "disable_web_page_preview": True,
