@@ -181,7 +181,7 @@ para confirmar que de verdad sale a internet.
 | `cloudflared` reinicia en bucle | Token mal copiado. Va completo, sin espacios |
 | El túnel conecta pero da error 502 | El hostname apunta a `localhost:5678`. Debe ser `n8n:5678` |
 | El dominio no resuelve | Los nameservers todavía no propagan a Cloudflare |
-| n8n carga pero el bot no responde | El workflow no está activo, o `N8N_DOMINIO` no calza con el hostname del túnel |
+| n8n carga pero el bot no responde | El workflow no está publicado, o `N8N_URL_PUBLICA` no calza con el hostname del túnel |
 | El bot ignora tus mensajes | `BIBLIO_TELEGRAM_CHAT_ID` mal puesto. Falla cerrado a propósito |
 
 Para ver los logs de un servicio puntual:

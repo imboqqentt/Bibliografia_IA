@@ -253,7 +253,7 @@ Completa por ahora sólo estas cuatro:
 | `N8N_ENCRYPTION_KEY` | el `openssl rand -hex 32` |
 | `POSTGRES_PASSWORD` | el `openssl rand -base64 24` |
 | `BIBLIO_TELEGRAM_CHAT_ID` | tu chat\_id |
-| `N8N_DOMINIO` | déjalo como está; lo corriges en el bloque 5 |
+| El bloque **LOCAL** de URL | **déjalo como está**: `http://localhost:5678`. Es lo que hace que el *Sign in with Google* vuelva a tu n8n y no a un dominio inexistente |
 
 `CLOUDFLARE_TUNNEL_TOKEN` queda vacío: todavía no existe.
 
@@ -465,8 +465,13 @@ nano .env
 Ahora sí:
 
 ```
-N8N_DOMINIO=n8n.tudominio.me
 CLOUDFLARE_TUNNEL_TOKEN=<el token largo de Cloudflare>
+
+# Comenta el bloque LOCAL y descomenta este:
+N8N_URL_PUBLICA=https://n8n.tudominio.me
+N8N_HOST=n8n.tudominio.me
+N8N_PROTOCOL=https
+N8N_PROXY_HOPS=1
 ```
 
 ```bash
@@ -494,7 +499,7 @@ Debe cargar con candado.
 
 # BLOQUE 6 — Activar y probar de verdad (día 3)
 
-Al cambiar `N8N_DOMINIO`, n8n reinició. Entra por
+Al cambiar el bloque de URL, n8n reinició. Entra por
 `https://n8n.tudominio.me` y:
 
 1. **Confirma que el pin del Telegram Trigger esté quitado.**
@@ -560,7 +565,7 @@ Para automatizarlo cada domingo, `crontab -e`:
 | `cloudflared` reinicia en bucle | Token mal copiado, o `.env` todavía vacío |
 | El túnel conecta pero da 502 | El hostname apunta a `localhost:5678`. Debe ser `n8n:5678` |
 | El dominio no resuelve | Los nameservers aún no propagan. `dig +short NS tudominio.me` |
-| n8n carga pero el bot no responde | El workflow no está activo, o `N8N_DOMINIO` no calza con el hostname del túnel |
+| n8n carga pero el bot no responde | El workflow no está publicado, o `N8N_URL_PUBLICA` no calza con el hostname del túnel |
 | El bot ignora tus mensajes | `BIBLIO_TELEGRAM_CHAT_ID` mal puesto. Falla cerrado a propósito |
 | El flujo usa siempre el mismo link | Quedó el pin puesto en el Telegram Trigger |
 | Un nodo con triángulo de advertencia | Versión de n8n distinta. Mándame cuál es |

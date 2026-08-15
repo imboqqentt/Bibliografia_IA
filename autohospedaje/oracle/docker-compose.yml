@@ -84,12 +84,28 @@ services:
       - CROSSREF_MAILTO=${CROSSREF_MAILTO}
 
       # --- URL publica ------------------------------------------------------
-      - WEBHOOK_URL=https://${N8N_DOMINIO}
-      - N8N_HOST=${N8N_DOMINIO}
-      - N8N_PROTOCOL=https
-      # Detras de un proxy inverso hay exactamente un salto (Caddy).
-      # Sin esto n8n arma mal las URLs y ve la IP del proxy como la del cliente.
-      - N8N_PROXY_HOPS=1
+      # De aqui sale la direccion que n8n declara como suya, y con ella arma la
+      # URL de retorno de OAuth que le entrega a Google. Si apunta a un dominio
+      # que todavia no existe, el "Sign in with Google" se va a una pagina rota.
+      #
+      # FASE LOCAL (antes de tener el dominio y Caddy):
+      #     N8N_URL_PUBLICA=http://localhost:5678
+      #     N8N_HOST=localhost
+      #     N8N_PROTOCOL=http
+      #     N8N_PROXY_HOPS=0
+      #
+      # CON CADDY YA ANDANDO:
+      #     N8N_URL_PUBLICA=https://n8n.tudominio.cl
+      #     N8N_HOST=n8n.tudominio.cl
+      #     N8N_PROTOCOL=https
+      #     N8N_PROXY_HOPS=1     (un salto: Caddy)
+      #
+      # Sin N8N_PROXY_HOPS bien puesto, n8n arma mal las URLs y ve la IP del
+      # proxy como si fuera la del cliente.
+      - WEBHOOK_URL=${N8N_URL_PUBLICA:-http://localhost:5678}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - N8N_PROXY_HOPS=${N8N_PROXY_HOPS:-0}
 
       # --- Archivos binarios ------------------------------------------------
       # El flujo descarga PDFs; a disco en vez de RAM.
