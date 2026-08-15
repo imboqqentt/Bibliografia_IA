@@ -604,13 +604,29 @@ N8N_PROTOCOL=https
 N8N_PROXY_HOPS=1
 ```
 
+Si venías usando el túnel prestado del bloque 3.5, bájalo primero para no
+quedar con dos apuntando al mismo n8n:
+
 ```bash
-docker compose up -d
+docker compose --profile rapido down cloudflared-rapido
+```
+
+Y ahora sí, el definitivo:
+
+```bash
+docker compose --profile tunel up -d
 docker compose logs -f cloudflared
 ```
 
 Espera a ver `Registered tunnel connection` — normalmente cuatro veces, una por
 cada conexión redundante.
+
+> **El `--profile tunel` va sólo esta vez.** El servicio está bajo perfil para
+> que no arranque antes de que exista el token: sin token el contenedor falla y
+> `restart: unless-stopped` lo revive en bucle, gastando CPU y llenando el log
+> durante todos los días previos al dominio. Una vez creado, los reinicios del
+> PC lo levantan solo, así que de aquí en adelante `docker compose up -d`
+> basta.
 
 ## 5.4 Verificar desde fuera de tu casa
 
@@ -692,7 +708,8 @@ Para automatizarlo cada domingo, `crontab -e`:
 
 | Síntoma | Causa |
 |---|---|
-| `cloudflared` reinicia en bucle | Token mal copiado, o `.env` todavía vacío |
+| `cloudflared` reinicia en bucle | Token mal copiado. Si aún no tienes dominio, ese servicio no debería estar arriba: `docker compose down cloudflared` |
+| Dos contenedores `cloudflared` en `docker ps` | Quedó el prestado y el definitivo a la vez. Baja el que no uses |
 | El túnel conecta pero da 502 | El hostname apunta a `localhost:5678`. Debe ser `n8n:5678` |
 | El dominio no resuelve | Los nameservers aún no propagan. `dig +short NS tudominio.me` |
 | n8n carga pero el bot no responde | El workflow no está publicado, o `N8N_URL_PUBLICA` no calza con el hostname del túnel |

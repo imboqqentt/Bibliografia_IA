@@ -129,10 +129,22 @@ services:
     ports:
       - "127.0.0.1:5678:5678"
 
+  # Tunel con nombre: el definitivo, el que da una direccion estable.
+  #
+  #   docker compose --profile tunel up -d
+  #
+  # Va bajo perfil porque sin CLOUDFLARE_TUNNEL_TOKEN el contenedor arranca,
+  # falla, y 'restart: unless-stopped' lo revive en bucle: gasta CPU y llena el
+  # log de errores durante toda la fase previa al dominio, que son dias. Con el
+  # perfil simplemente no existe hasta que lo pides.
+  #
+  # Una vez creado, los reinicios del PC lo vuelven a levantar solo: los
+  # perfiles solo deciden que se crea con 'up', no que se reinicia despues.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: n8n-cloudflared
     restart: unless-stopped
+    profiles: ["tunel"]
 
     depends_on:
       - n8n

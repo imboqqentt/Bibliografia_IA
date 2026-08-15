@@ -157,9 +157,14 @@ openssl rand -hex 32       # -> N8N_ENCRYPTION_KEY
 openssl rand -base64 24    # -> POSTGRES_PASSWORD
 nano .env                  # completa las 5 variables
 
-docker compose up -d
+docker compose --profile tunel up -d
 docker compose logs -f
 ```
+
+> El `--profile tunel` incluye el servicio `cloudflared`, que está bajo perfil
+> para que no arranque mientras no exista `CLOUDFLARE_TUNNEL_TOKEN` — sin token
+> falla y se reinicia en bucle. Después de la primera vez, `docker compose
+> up -d` basta.
 
 Qué esperar:
 
