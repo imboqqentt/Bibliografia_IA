@@ -721,8 +721,19 @@ connections = {
     "Ya registrado?": rama("Avisar duplicado", "Hay texto para resumir?"),
     "Hay texto para resumir?": rama("Resumir con LLM", "Consolidar registro"),
     "Resumir con LLM": main("Consolidar registro"),
-    LLM["nodo"]: {"ai_languageModel": [
-        [{"node": "Resumir con LLM", "type": "ai_languageModel", "index": 0}]]},
+    # El modelo alimenta DOS nodos, no uno.
+    #
+    # Con autoFix activado, el parser deja de ser una hoja del grafo: le crece
+    # una entrada ai_languageModel *obligatoria*, porque la correccion del JSON
+    # mal formado es otra llamada al modelo. Sin conectarla, el nodo falla con
+    # "A Model sub-node must be connected and enabled" y se pierde el resumen,
+    # que es justo lo que autoFix venia a evitar.
+    #
+    # Se reutiliza el mismo sub-nodo: misma credencial, mismo modelo.
+    LLM["nodo"]: {"ai_languageModel": [[
+        {"node": "Resumir con LLM", "type": "ai_languageModel", "index": 0},
+        {"node": "Formato JSON del resumen", "type": "ai_languageModel", "index": 0},
+    ]]},
     "Formato JSON del resumen": {"ai_outputParser": [
         [{"node": "Resumir con LLM", "type": "ai_outputParser", "index": 0}]]},
     "Consolidar registro": main("Leer referencias.bib"),
@@ -769,6 +780,18 @@ for n in nodes:
         crudas = [t for t in re.findall(r"\{\{(.*?)\}\}", texto, re.S)
                   if "replace(/&/g" not in t and "?" not in t]
         assert not crudas, "%s interpola sin escapar: %s" % (n["name"], crudas)
+
+# Si el parser tiene autoFix, su entrada de modelo es obligatoria: la
+# correccion del JSON es otra llamada al LLM. Olvidar el cable deja el nodo
+# muerto con "A Model sub-node must be connected and enabled".
+for n in nodes:
+    if n["type"].endswith("outputParserStructured") and n["parameters"].get("autoFix"):
+        destinos = [c["node"]
+                    for salidas in connections.values()
+                    for ramas in salidas.get("ai_languageModel", [])
+                    for c in ramas]
+        assert n["name"] in destinos, (
+            "%s tiene autoFix pero ningun modelo conectado" % n["name"])
 
 for origen, salidas in connections.items():
     assert origen in nombres, "Origen inexistente: %s" % origen

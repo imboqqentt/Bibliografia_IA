@@ -1297,6 +1297,11 @@
             "node": "Resumir con LLM",
             "type": "ai_languageModel",
             "index": 0
+          },
+          {
+            "node": "Formato JSON del resumen",
+            "type": "ai_languageModel",
+            "index": 0
           }
         ]
       ]
