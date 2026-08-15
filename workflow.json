@@ -309,7 +309,7 @@
             },
             {
               "name": "mailto",
-              "value": "danielh19991@gmail.com"
+              "value": "={{ $env.CROSSREF_MAILTO }}"
             }
           ]
         },
@@ -318,7 +318,7 @@
           "parameters": [
             {
               "name": "User-Agent",
-              "value": "BibliografiaMemoria/1.0 (https://n8n.local; mailto:danielh19991@gmail.com)"
+              "value": "=BibliografiaMemoria/1.0 (mailto:{{ $env.CROSSREF_MAILTO }})"
             }
           ]
         },
@@ -415,7 +415,7 @@
           "parameters": [
             {
               "name": "mailto",
-              "value": "danielh19991@gmail.com"
+              "value": "={{ $env.CROSSREF_MAILTO }}"
             }
           ]
         },
@@ -424,7 +424,7 @@
           "parameters": [
             {
               "name": "User-Agent",
-              "value": "BibliografiaMemoria/1.0 (https://n8n.local; mailto:danielh19991@gmail.com)"
+              "value": "=BibliografiaMemoria/1.0 (mailto:{{ $env.CROSSREF_MAILTO }})"
             }
           ]
         },

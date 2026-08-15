@@ -45,6 +45,9 @@ services:
       # explicito para que no dependa de un cambio de default mas adelante.
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
 
+      # Correo para el polite pool de Crossref (opcional)
+      - CROSSREF_MAILTO=${CROSSREF_MAILTO}
+
       # --- URL publica ------------------------------------------------------
       # Telegram registra su webhook contra esta direccion. Ver .env.
       - WEBHOOK_URL=${WEBHOOK_URL}

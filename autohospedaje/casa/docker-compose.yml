@@ -76,6 +76,9 @@ services:
       - BIBLIO_TELEGRAM_CHAT_ID=${BIBLIO_TELEGRAM_CHAT_ID}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
 
+      # Correo para el polite pool de Crossref (opcional)
+      - CROSSREF_MAILTO=${CROSSREF_MAILTO}
+
       # El dominio es el que configuraste en Cloudflare, no la IP de tu casa.
       - WEBHOOK_URL=https://${N8N_DOMINIO}
       - N8N_HOST=${N8N_DOMINIO}

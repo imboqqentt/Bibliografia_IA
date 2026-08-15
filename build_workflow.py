@@ -17,10 +17,17 @@ import uuid
 BASE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.join(BASE, "code")
 
-# Correo para el "polite pool" de Crossref. No es un secreto: Crossref pide
-# explicitamente que vaya visible en el User-Agent o en el parametro mailto.
-MAILTO = "danielh19991@gmail.com"
-USER_AGENT = "BibliografiaMemoria/1.0 (https://n8n.local; mailto:%s)" % MAILTO
+# Correo para el "polite pool" de Crossref.
+#
+# No es un secreto: Crossref pide explicitamente que vaya visible en el
+# User-Agent o en el parametro mailto. Pero tampoco tiene por que quedar
+# incrustado en un repositorio publico, asi que se lee en tiempo de ejecucion
+# desde la variable de entorno CROSSREF_MAILTO (igual que el chat de Telegram).
+#
+# Si la variable no esta definida, Crossref responde igual: pierdes el acceso
+# al pool prioritario y las consultas van algo mas lentas, nada mas.
+MAILTO = "={{ $env.CROSSREF_MAILTO }}"
+USER_AGENT = "=BibliografiaMemoria/1.0 (mailto:{{ $env.CROSSREF_MAILTO }})"
 
 # Placeholders que hay que reemplazar tras importar (ver README)
 ID_PLANILLA = "REEMPLAZAR_ID_DE_LA_PLANILLA"

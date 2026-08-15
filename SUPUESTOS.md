@@ -20,10 +20,12 @@ tocar a mano después de importar.
 3. **Zona horaria `America/Santiago`**, usada para `fecha_ingreso` y para el
    "Consultado el dd/mm/aaaa" de las entradas web. Está en la primera línea de
    configuración de `code/01-normalizar-entrada.js`.
-4. **Tu correo `danielh19991@gmail.com`** va literal en el `mailto` y en el
-   `User-Agent` de las dos llamadas a Crossref. No es un secreto: Crossref pide
-   explícitamente que sea visible para darte acceso al *polite pool*. Cámbialo si
-   prefieres otro correo (nodos *Crossref metadatos* y *Crossref buscar por título*).
+4. **El correo para Crossref se lee de la variable `CROSSREF_MAILTO`**, no está
+   incrustado en el workflow. Crossref pide que las aplicaciones se identifiquen
+   con un correo y a cambio da acceso al *polite pool*, que responde más rápido.
+   Se dejó como variable de entorno para que el repositorio no cargue datos
+   personales y pueda ser público. **Si la dejas vacía el flujo funciona igual**,
+   sólo que las consultas van por la vía pública.
 
 ### Sobre las decisiones de diseño
 
