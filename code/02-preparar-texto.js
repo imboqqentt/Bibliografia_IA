@@ -196,6 +196,30 @@ let fuenteTexto = 'ninguna';
 if (textoPdf) {
   texto = textoPdf;
   fuenteTexto = 'pdf';
+
+  // --- rescate del DOI desde el propio PDF ---
+  //
+  // Importa sobre todo cuando el PDF llego adjunto por Telegram sin caption:
+  // ahi no hay URL ni DOI de ninguna otra parte, y sin DOI no hay metadatos
+  // de Crossref. Casi todos los papers imprimen su DOI en la primera pagina,
+  // en el encabezado o el pie.
+  //
+  // Se mira solo el principio del documento a proposito: mas adelante vienen
+  // las REFERENCIAS, llenas de DOIs de OTROS trabajos. Agarrar uno de esos
+  // seria peor que no encontrar ninguno.
+  const cabecera = textoPdf.slice(0, 3000);
+  const patrones = [
+    /(?:https?:\/\/(?:dx\.)?doi\.org\/)(10\.\d{4,9}\/[^\s"'<>]+)/i,
+    /\bdoi:\s*(10\.\d{4,9}\/[^\s"'<>]+)/i,
+    /\b(10\.\d{4,9}\/[^\s"'<>]+)/,
+  ];
+  for (const re of patrones) {
+    const m = cabecera.match(re);
+    if (m) {
+      const encontrado = limpiarDoi(m[1]);
+      if (encontrado) { doiDePagina = encontrado; break; }
+    }
+  }
 } else if (contenido && pareceHtml) {
   fuenteTexto = 'html';
 
@@ -259,7 +283,8 @@ const textoSuficiente = longitudBruta >= MIN_CHARS_UTILES;
 
 // Diagnostico honesto de por que no hay resumen
 let motivo = '';
-if (!estado.hay_url_descarga) motivo = 'No se recibio URL ni DOI descargable.';
+if (!estado.hay_url_descarga && !estado.hay_pdf_adjunto) motivo = 'No se recibio URL ni DOI descargable.';
+else if (estado.hay_pdf_adjunto && !contenido) motivo = 'El PDF adjunto no devolvio texto: puede ser un escaneo sin capa de texto (necesita OCR).';
 else if (!contenido) motivo = 'La descarga no devolvio contenido (paywall, 403, timeout o binario no soportado).';
 else if (!textoSuficiente) motivo = `Texto extraido demasiado corto (${longitudBruta} caracteres); probable paywall o pagina de redireccion.`;
 

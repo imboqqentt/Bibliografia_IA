@@ -132,6 +132,41 @@ El nodo Telegram Trigger registra el webhook solo al **publicar** el workflow
 local, necesitas un túnel público (`n8n start --tunnel`) para que Telegram alcance tu
 instancia.
 
+### 2.1 Qué le puedes mandar al bot
+
+Tres formas, y la tercera resuelve los papers de pago:
+
+| Le mandas | Qué hace |
+|---|---|
+| Un link o un DOI suelto | Descarga la página, saca el DOI, consulta Crossref y resume |
+| `<link> \| <título>` | Igual, pero usa ese título para buscar en Crossref si no hay DOI |
+| **Un PDF como archivo adjunto** | Extrae el texto del PDF directamente, sin descargar nada |
+
+**El PDF adjunto es la salida para las fuentes cerradas.** Un paper de Elsevier
+o Springer sin acceso abierto no se puede descargar: el editor no publica el
+texto y no existe copia legal en ningún repositorio. Lo bajas desde la
+biblioteca de tu universidad y se lo reenvías al bot como archivo.
+
+Al mandar el PDF, **escribe el DOI en el pie del archivo** (el campo de texto
+que Telegram ofrece al adjuntar). Es lo que garantiza metadatos correctos. Si
+no pones nada, el flujo intenta, en este orden:
+
+1. Buscar el DOI **en la primera página del PDF** — casi todos los papers lo
+   imprimen en el encabezado o el pie.
+2. Usar el **nombre del archivo** como título para buscar en Crossref.
+
+> Sólo mira las primeras 3.000 letras a propósito. Más abajo vienen las
+> **referencias**, llenas de DOIs de *otros* trabajos: tomar uno de ahí daría
+> una cita completa y equivocada, que es peor que quedarse sin metadatos.
+
+Dos límites que conviene saber:
+
+- **20 MB por archivo**, tope de la API de Telegram para bots.
+- Un **PDF escaneado sin capa de texto** no se puede leer: queda con
+  `estado_resumen = PENDIENTE` y el bot te dice que necesita OCR.
+
+> Mándalo como **archivo**, no como foto. En Telegram, *Adjuntar → Archivo*.
+
 ---
 
 ## 3. Preparar el repositorio del `.bib` y sincronizarlo con Overleaf

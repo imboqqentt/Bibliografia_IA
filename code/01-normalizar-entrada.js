@@ -140,8 +140,28 @@ const entrada = $input.first().json;
 const msg = entrada.message || entrada.edited_message || entrada.channel_post || {};
 const textoOriginal = String(msg.text || msg.caption || '').trim();
 
-if (!textoOriginal) {
-  throw new Error('El mensaje de Telegram no contiene texto ni caption.');
+// --- PDF adjunto ----------------------------------------------------------
+//
+// Para un paper cerrado no hay nada que descargar: el editor no publica el
+// texto y no existe copia abierta legal. La unica via es bajarlo desde la
+// biblioteca de la universidad y reenviarlo al bot como archivo.
+//
+// Telegram entrega los adjuntos en message.document, con un file_id que hay
+// que canjear por el archivo. El texto que acompana a un PDF viaja en
+// message.caption, NO en message.text: por eso conviene escribir el DOI o el
+// titulo en el pie del archivo, para que Crossref pueda dar los metadatos.
+// Si viene vacio, el flujo intenta sacar el DOI de adentro del propio PDF.
+const doc = msg.document || {};
+const nombrePdf = String(doc.file_name || '');
+const hayPdfAdjunto = Boolean(
+  doc.file_id
+  && (String(doc.mime_type || '').toLowerCase() === 'application/pdf'
+      || /\.pdf$/i.test(nombrePdf)),
+);
+
+// Sin texto NI adjunto no hay nada que procesar.
+if (!textoOriginal && !hayPdfAdjunto) {
+  throw new Error('El mensaje de Telegram no contiene texto, caption ni PDF adjunto.');
 }
 
 // Sintaxis opcional "<url o doi> | <titulo a mano>"
@@ -168,6 +188,21 @@ if (!urlDescarga && doi) urlDescarga = `https://doi.org/${doi}`;
 let tituloHint = tituloManual;
 if (!tituloHint && !url && !doi) tituloHint = parteLink;
 
+// Con un PDF adjunto y sin pista, el nombre del archivo es mejor que nada:
+// "Ackermann 2022 - Rationales and functions.pdf" es un titulo utilizable.
+// Se limpian extension, guiones bajos y numeracion tipo "1-s2.0-..." de
+// Elsevier, que no aportan nada a la busqueda en Crossref.
+if (!tituloHint && hayPdfAdjunto && nombrePdf) {
+  const limpio = nombrePdf
+    .replace(/\.pdf$/i, '')
+    .replace(/^1-s2\.0-\w+?-/i, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  // Un nombre como "documento" o "paper (3)" no sirve de pista.
+  if (limpio.length > 12 && /[a-zA-Z]{4,}/.test(limpio)) tituloHint = limpio;
+}
+
 const ahora = $now.setZone(ZONA_HORARIA);
 
 return [{
@@ -185,6 +220,12 @@ return [{
     url_descarga: urlDescarga || '',
     url_normalizada: normalizarUrl(urlDescarga || parteLink),
     hay_url_descarga: Boolean(urlDescarga),
+
+    // --- PDF adjunto ---
+    hay_pdf_adjunto: hayPdfAdjunto,
+    telegram_file_id: hayPdfAdjunto ? String(doc.file_id) : '',
+    pdf_nombre: nombrePdf,
+    pdf_bytes: Number(doc.file_size || 0),
 
     // --- pistas para Crossref / LLM ---
     titulo_hint: tituloHint || '',

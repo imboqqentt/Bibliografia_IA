@@ -346,7 +346,32 @@ nodes.append(code_node("Normalizar entrada", "01-normalizar-entrada.js", (-360, 
                        "Extrae URL y DOI del mensaje. Sin llamadas externas."))
 
 nodes.append(node(
-    "Hay URL?", "n8n-nodes-base.if", 2.2, (-140, 280),
+    "Hay PDF adjunto?", "n8n-nodes-base.if", 2.2, (-140, 280),
+    {"conditions": cond_bool("={{ $json.hay_pdf_adjunto }}"), "options": {}},
+    notes="Un paper cerrado no se puede descargar: se manda el PDF al bot como "
+          "archivo, con el DOI o el titulo en el pie.",
+))
+
+nodes.append(node(
+    "Descargar PDF de Telegram", "n8n-nodes-base.telegram", 1.2, (80, 440),
+    {
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{ $json.telegram_file_id }}",
+        "download": True,
+        # El nodo deduce el mime por la extension, pero el nombre que devuelve
+        # la API de Telegram no siempre la conserva. Se fija a mano para que
+        # "Extraer texto PDF" no lo rechace.
+        "additionalFields": {"mimeType": "application/pdf"},
+    },
+    retryOnFail=True, maxTries=3, waitBetweenTries=2000,
+    credentials={"telegramApi": {"id": "REEMPLAZAR", "name": "Telegram Bot Memoria"}},
+    notes="Deja el archivo en la propiedad binaria 'data', que es la que espera "
+          "el extractor. Limite de la API de Telegram: 20 MB por archivo.",
+))
+
+nodes.append(node(
+    "Hay URL?", "n8n-nodes-base.if", 2.2, (80, 280),
     {"conditions": cond_bool("={{ $json.hay_url_descarga }}"), "options": {}},
 ))
 
@@ -725,7 +750,11 @@ def rama(verdadero, falso):
 connections = {
     "Telegram Trigger": main("Chat autorizado?"),
     "Chat autorizado?": rama("Normalizar entrada", "Ignorar mensaje"),
-    "Normalizar entrada": main("Hay URL?"),
+    "Normalizar entrada": main("Hay PDF adjunto?"),
+    # Con adjunto se salta toda la descarga web y se entra directo al extractor
+    # de PDF, que ya existia para los PDFs descargados de la web.
+    "Hay PDF adjunto?": rama("Descargar PDF de Telegram", "Hay URL?"),
+    "Descargar PDF de Telegram": main("Extraer texto PDF"),
     "Hay URL?": rama("Descargar fuente", "Preparar texto"),
     "Descargar fuente": main("Es PDF?"),
     "Es PDF?": rama("Extraer texto PDF", "Extraer texto HTML"),
@@ -794,7 +823,10 @@ assert len(nombres) == len(set(nombres)), "Hay nombres de nodo repetidos"
 # pone Markdown legacy por su cuenta cuando falta, y ahi cualquier guion bajo
 # de un link revienta el envio con un 400. Ver el comentario de tg_esc().
 for n in nodes:
-    if n["type"] == "n8n-nodes-base.telegram":
+    # Solo los que ENVIAN texto. El nodo que baja el PDF adjunto tambien es de
+    # Telegram, pero no manda nada y no tiene parse_mode que fijar.
+    if (n["type"] == "n8n-nodes-base.telegram"
+            and n["parameters"].get("resource", "message") == "message"):
         modo = n["parameters"].get("additionalFields", {}).get("parse_mode")
         assert modo == PARSE_MODE_TELEGRAM, (
             "%s no fija parse_mode=%s" % (n["name"], PARSE_MODE_TELEGRAM))

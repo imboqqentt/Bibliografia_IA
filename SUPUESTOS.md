@@ -150,6 +150,16 @@ Ordenado de más a menos probable.
 
 ### Bastante probable
 
+4b. **El PDF adjunto tiene capa de texto.** La rama de PDFs por Telegram extrae el
+   texto tal cual viene en el archivo; no hace OCR. Un escaneo de fotocopia queda con
+   `estado_resumen = PENDIENTE` y el motivo lo dice. También aplica el tope de **20 MB
+   por archivo** de la API de Telegram, que no es del flujo sino de la plataforma.
+
+   El DOI se busca sólo en las primeras **3.000 letras** del PDF. Es deliberado: más
+   abajo están las referencias, con DOIs de otros trabajos, y adoptar uno de ésos daría
+   una cita completa y equivocada. Si el paper no imprime su DOI en la portada, el flujo
+   prefiere quedarse sin él y marcar `metadatos_manuales = SÍ`.
+
 5. **La ruta del `.bib`.** Viene como `referencias.bib` en la raíz. Si en tu proyecto
    está en un subdirectorio, cámbialo en **los dos** nodos de GitHub.
 6. **La rama.** Los nodos GitHub trabajan contra la **rama por defecto** del repo. Si

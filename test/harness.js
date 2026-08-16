@@ -536,6 +536,108 @@ r8 = correr('03-elegir-candidato-crossref.js', [{}], { 'Preparar texto': base8 }
 check('respuesta vacia de Crossref no rompe', r8.doi === '' && r8.crossref_busqueda_candidatos === 0);
 
 // ===========================================================================
+titulo('Caso 9 — PDF adjunto por Telegram');
+
+// El caso que motivo esta rama: un paper cerrado (Elsevier), sin copia abierta
+// legal en ninguna parte, que solo se puede resumir si lo bajas desde la
+// biblioteca de la universidad y se lo reenvias al bot.
+
+// --- 9a. Con el DOI escrito en el pie del archivo -------------------------
+let r9 = correr('01-normalizar-entrada.js', [{
+  message: {
+    chat: { id: 123456789 },
+    caption: '10.1016/j.enconman.2009.01.019',
+    document: {
+      file_id: 'BQACAgEAAxkBAAI',
+      file_name: 'enconman2009.pdf',
+      mime_type: 'application/pdf',
+      file_size: 812345,
+    },
+  },
+}], {})[0].json;
+
+check('detecta el PDF adjunto', r9.hay_pdf_adjunto === true);
+check('guarda el file_id para canjearlo', r9.telegram_file_id === 'BQACAgEAAxkBAAI');
+check('el caption sirve de DOI', r9.doi === '10.1016/j.enconman.2009.01.019', r9.doi);
+
+// --- 9b. Sin caption: el DOI tiene que salir del propio PDF ---------------
+const sinCaption = correr('01-normalizar-entrada.js', [{
+  message: {
+    chat: { id: 123456789 },
+    document: {
+      file_id: 'BQACAgEAAxkBAAJ',
+      file_name: 'Ackermann 2022 - Rationales and functions of disliked music.pdf',
+      mime_type: 'application/pdf',
+    },
+  },
+}], {})[0].json;
+
+check('sin caption no revienta', sinCaption.hay_pdf_adjunto === true);
+check('usa el nombre del archivo como pista de titulo',
+  sinCaption.titulo_hint.includes('Rationales and functions'), sinCaption.titulo_hint);
+
+// El PDF trae su DOI en la primera pagina, y MAS ABAJO las referencias con
+// DOIs de otros trabajos. Solo puede tomar el primero.
+const pdfConReferencias = [
+  'Energy Conversion and Management 50 (2009) 1240-1246',
+  'https://doi.org/10.1016/j.enconman.2009.01.019',
+  'Second law comparison of single effect and double effect vapour absorption',
+  'Abstract: ' + 'Contenido tecnico del articulo. '.repeat(120),
+  'References',
+  '[1] Otro autor. Trabajo distinto. doi:10.9999/NO-DEBE-TOMAR-ESTE',
+].join('\n');
+
+const texto9 = correr('02-preparar-texto.js', [{ text: pdfConReferencias }], {
+  'Normalizar entrada': sinCaption,
+})[0].json;
+
+check('rescata el DOI de la primera pagina del PDF',
+  texto9.doi === '10.1016/j.enconman.2009.01.019', texto9.doi);
+check('NO toma un DOI de la lista de referencias',
+  !texto9.doi.includes('NO-DEBE-TOMAR-ESTE'), texto9.doi);
+check('marca el PDF como fuente del texto', texto9.fuente_texto === 'pdf');
+check('hay texto suficiente para resumir', texto9.texto_suficiente === true,
+  `longitud=${texto9.longitud_texto}`);
+
+// El guard de verdad: si el paper NO imprime su propio DOI, no puede
+// conformarse con el primero que encuentre en la bibliografia. Antes sin DOI
+// que con el DOI de otro trabajo.
+const soloEnReferencias = [
+  'Alguna revista tecnica, volumen 12 (2009) 1240-1246',
+  'Titulo del articulo sin identificador impreso',
+  'Abstract: ' + 'Contenido tecnico del articulo. '.repeat(120),
+  'References',
+  '[1] Otro autor. Trabajo distinto. doi:10.9999/ajeno-no-tomar',
+].join('\n');
+
+const texto9b = correr('02-preparar-texto.js', [{ text: soloEnReferencias }], {
+  'Normalizar entrada': sinCaption,
+})[0].json;
+check('sin DOI propio, no adopta el de la bibliografia',
+  texto9b.doi === '', texto9b.doi);
+
+// --- 9c. PDF escaneado: sin capa de texto ---------------------------------
+const escaneado = correr('02-preparar-texto.js', [{}], {
+  'Normalizar entrada': sinCaption,
+})[0].json;
+check('PDF sin texto -> queda PENDIENTE', escaneado.texto_suficiente === false);
+check('y el motivo menciona el OCR',
+  escaneado.motivo_sin_texto.includes('OCR'), escaneado.motivo_sin_texto);
+
+// --- 9d. Un mensaje que no es PDF sigue tomando el camino de siempre ------
+const conLink = correr('01-normalizar-entrada.js', [{
+  message: { chat: { id: 123456789 }, text: 'https://doi.org/10.1371/journal.pone.0263384' },
+}], {})[0].json;
+check('un link normal no se confunde con adjunto', conLink.hay_pdf_adjunto === false);
+check('un .doc adjunto no se trata como PDF',
+  correr('01-normalizar-entrada.js', [{
+    message: {
+      chat: { id: 1 }, caption: 'algo',
+      document: { file_id: 'X', file_name: 'notas.docx', mime_type: 'application/msword' },
+    },
+  }], {})[0].json.hay_pdf_adjunto === false);
+
+// ===========================================================================
 titulo('Resultado');
 if (fallas === 0) {
   console.log('Todas las comprobaciones pasaron.\n');
