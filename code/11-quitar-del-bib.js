@@ -82,9 +82,13 @@ if (posicion) {
   quitada = true;
 }
 
+// Los comandos van en texto plano y en linea propia: dentro de <code> o <a>
+// Telegram deja de detectarlos como bot_command y no se pueden tocar.
+const NAVEGACION = ['', '📚 Ver la lista:', '/lista', '', '⬅️ Menu principal:', '/menu'];
+
 const respuesta = quitada
   ? [
-    `Listo. <b>${esc(clave)}</b> eliminada.`,
+    `✅ <b>${esc(clave)}</b> eliminada.`,
     '',
     `Fila ${datos.fila_numero} de la planilla y entrada del referencias.bib.`,
     '',
@@ -93,11 +97,13 @@ const respuesta = quitada
     '',
     '<i>El .bib vive en git, asi que la entrada sigue en el historial '
     + 'del repositorio si necesitas recuperarla.</i>',
+    ...NAVEGACION,
   ].join('\n')
   : [
     `Quite <b>${esc(clave)}</b> de la planilla, pero no estaba en el referencias.bib.`,
     '',
     'Puede que ya la hubieras borrado a mano. El archivo quedo intacto.',
+    ...NAVEGACION,
   ].join('\n');
 
 return [{

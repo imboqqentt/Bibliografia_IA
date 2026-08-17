@@ -26,7 +26,7 @@ Nunca escribe un autor, un año, una revista ni un tipo de publicación.
 |---|---|
 | `autohospedaje/` | Cómo y dónde correr n8n: notebook, PC de casa, Raspberry, VPS |
 | `workflow.json` | El flujo completo, listo para importar con Ctrl+V en el canvas de n8n |
-| `code/*.js` | El código de los 8 nodos Code, comentado, en archivos separados |
+| `code/*.js` | El código de los 12 nodos Code, comentado, en archivos separados |
 | `build_workflow.py` | Regenera `workflow.json` inyectando los `code/*.js`. Se corre tras editar el JS |
 | `test/harness.js` | Banco de pruebas de los nodos Code, ejecutable fuera de n8n (`node test/harness.js`) |
 | `test/telegram-pin-ejemplos.json` | Mensajes de Telegram falsos para probar el flujo sin webhook público |
@@ -167,27 +167,48 @@ Dos límites que conviene saber:
 
 > Mándalo como **archivo**, no como foto. En Telegram, *Adjuntar → Archivo*.
 
-### 2.2 Comandos para revisar desde el teléfono
+### 2.2 Navegar la bibliografía desde el teléfono
 
-Cualquier mensaje que empiece con `/` se responde y **no** se registra como
-referencia.
+El bot se maneja **tocando**, no escribiendo. Telegram convierte en enlace
+tocable cualquier `/palabra` dentro del texto de un mensaje, así que cada
+pantalla trae sus propias acciones listas para apretar.
 
-| Comando | Qué devuelve |
-|---|---|
-| `/enlaces` | Total registrado, más el link a la planilla y al `referencias.bib` |
-| `/ultimas` | Las 5 más recientes, cada título enlazado a su nota de lectura |
-| `/pendientes` | Las que quedaron sin resumen automático, para completarlas a mano |
-| `/ver <clave>` | El comienzo del resumen, más palabras clave y utilidad |
-| `/borrar <clave>` | Elimina la referencia de la planilla y del `.bib` |
-| `/ayuda` | La lista de comandos |
+```
+/start                        →  menú principal
+  └ /lista                    →  las referencias, paginadas de 8 en 8
+      └ /ver_<clave>          →  ficha de una referencia
+          ├ /resumen_<clave>  →  el comienzo del resumen
+          ├ /enlaces_<clave>  →  su nota y su fila en la planilla
+          └ /borrar_<clave>   →  pide confirmación
+              └ /borrar_si_<clave>
+```
 
-La `<clave>` es la citation key: `/ver ackermann2022rationales`.
+No tienes que memorizar ni escribir ninguno: van dentro de los mensajes y se
+tocan. Los de entrada, por si acaso, son `/menu`, `/lista`, `/pendientes` y
+`/enlaces`.
 
-**Sobre `/borrar`.** Quita la fila de la planilla y la entrada del `.bib`, en
-ese orden inverso: primero el `.bib`, después la fila. Es deliberado — si algo
-falla a medio camino, es preferible que sobre una fila (visible, fácil de
-borrar a mano) a que sobre una entrada en el `.bib`, que se arrastraría en
-silencio hasta la memoria compilada.
+**Por qué comandos tocables y no botones.** El campo `inlineKeyboard` del nodo
+de Telegram es una estructura **fija**: las filas y botones se definen al
+diseñar el flujo, no en ejecución, así que una lista de N referencias con
+paginación no cabe. La alternativa era llamar a la API con un nodo HTTP
+Request, pero la credencial `telegramApi` no tiene bloque `authenticate` y ese
+nodo no puede usarla — habría que sacar el token del gestor de credenciales.
+
+Ventaja lateral: los títulos se leen completos. Un botón corta a unos 30
+caracteres, y *"Second law comparison of single effect and double…"* queda
+ilegible.
+
+> Al editar los mensajes, los comandos van en **texto plano y en línea
+> propia**. Dentro de `<code>` o `<a>` el cliente deja de detectarlos y no se
+> pueden tocar.
+
+**Sobre borrar.** Hace falta un segundo toque en un comando distinto
+(`/borrar_si_…`), porque un comando tocable se aprieta sin querer con la misma
+facilidad que un botón. Quita la fila de la planilla y la entrada del `.bib`,
+en ese orden inverso: primero el `.bib`, después la fila. Si algo falla a medio
+camino, es preferible que sobre una fila —visible, fácil de borrar a mano— a
+que sobre una entrada en el `.bib`, que se arrastraría en silencio hasta la
+memoria compilada.
 
 **La nota de Drive no se borra.** El bot te devuelve su link para que decidas.
 Borrar archivos de tu Drive automáticamente es una puerta que prefiero no
@@ -202,9 +223,28 @@ ejecución de los nodos que ya apuntan a tu planilla y a tu repositorio, con
 `$('Nodo').params`. Si algún día cambias de planilla, los comandos siguen a la
 nueva sin tocar nada.
 
-> Esta rama arregla además un problema silencioso: `/start` —que Telegram manda
-> solo al abrir el chat con el bot por primera vez— antes entraba al flujo
-> normal e intentaba registrarse como si fuera una fuente bibliográfica.
+> Esto arregla además un problema silencioso: `/start` —que Telegram manda solo
+> al abrir el chat con el bot por primera vez— antes entraba al flujo normal e
+> intentaba registrarse como si fuera una fuente bibliográfica.
+
+### 2.3 El menú nativo de Telegram (opcional, un minuto)
+
+Para que el botón **☰** junto al campo de texto muestre los comandos de
+entrada, regístralos una sola vez. Desde tu computador:
+
+```bash
+curl -s -X POST "https://api.telegram.org/bot<TU_TOKEN>/setMyCommands" \
+  -H 'Content-Type: application/json' \
+  -d '{"commands":[
+    {"command":"menu","description":"Menu principal"},
+    {"command":"lista","description":"Ver todas las referencias"},
+    {"command":"pendientes","description":"Las que falta resumir"},
+    {"command":"enlaces","description":"Planilla y referencias.bib"}
+  ]}'
+```
+
+Es una llamada a Telegram, no a n8n: no cambia el flujo y se puede repetir sin
+riesgo.
 
 ---
 

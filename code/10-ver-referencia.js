@@ -135,7 +135,11 @@ if (!contenido.trim()) {
   if (recortado) partes.push('', 'Sigue en la nota completa:');
 }
 
-partes.push('', `<a href="${esc(datos.link_nota)}">Abrir la nota</a>`);
+partes.push('', `<a href="${esc(datos.link_nota)}">📝 Abrir la nota completa</a>`);
+
+// Comandos tocables para seguir navegando. En texto plano y en linea propia:
+// dentro de <code> o <a> Telegram ya no los detecta como bot_command.
+partes.push('', '⬅️ Volver a la ficha:', `/ver_${datos.clave}`);
 
 return [{
   json: {

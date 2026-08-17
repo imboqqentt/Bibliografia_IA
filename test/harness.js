@@ -685,11 +685,12 @@ check('/enlaces arma el link de la planilla desde otro nodo',
 check('/enlaces arma el link del .bib desde otro nodo',
   r10.respuesta.includes('imboqqentt/Bibliografia_IA/blob/HEAD/referencias.bib'));
 
-r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/ultimas'))[0].json;
-check('/ultimas muestra primero la mas reciente',
-  r10.respuesta.indexOf('dalkilic2025access') < r10.respuesta.indexOf('ackermann2022rationales'));
-check('/ultimas enlaza cada nota',
-  r10.respuesta.includes('<a href="https://docs.google.com/document/d/AAA/edit">'));
+r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/lista'))[0].json;
+check('/lista da a cada referencia su comando tocable',
+  r10.respuesta.includes('/ver_ackermann2022rationales')
+  && r10.respuesta.includes('/ver_osterroth2021energy'), r10.respuesta);
+check('/lista marca las pendientes', r10.respuesta.includes('\u23f3'));
+check('/lista ofrece volver al menu', r10.respuesta.includes('/menu'));
 
 // El caso que tumbaba el mensaje entero con un 400 antes de escapar
 check('escapa & y <> de los titulos',
@@ -700,46 +701,82 @@ r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/pendientes'))[
 check('/pendientes filtra por estado_resumen', r10.total_pendientes === 2,
   String(r10.total_pendientes));
 check('/pendientes no lista las que si tienen resumen',
-  !r10.respuesta.includes('ackermann2022rationales'));
+  !r10.respuesta.includes('/ver_ackermann2022rationales'));
 check('una nota sin link no rompe el mensaje',
   r10.respuesta.includes('Otro trabajo') && !r10.respuesta.includes('href=""'));
 
 // /start es el que motivo la rama: Telegram lo manda solo al abrir el chat
 r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/start'))[0].json;
-check('/start responde la ayuda en vez de registrarse como referencia',
-  r10.respuesta.includes('Comandos disponibles'), r10.respuesta.slice(0, 60));
-check('un comando desconocido tambien cae en la ayuda',
+check('/start abre el menu en vez de registrarse como referencia',
+  r10.respuesta.includes('Bibliografia de la memoria'), r10.respuesta.slice(0, 60));
+check('el menu ofrece las tres entradas',
+  r10.respuesta.includes('/lista') && r10.respuesta.includes('/pendientes')
+  && r10.respuesta.includes('/enlaces'));
+check('un comando desconocido tambien cae en el menu',
   correr('09-comandos.js', filasPlanilla,
-    nodosParaComandos('/loquesea'))[0].json.respuesta.includes('Comandos disponibles'));
+    nodosParaComandos('/loquesea'))[0].json.respuesta.includes('Bibliografia de la memoria'));
 
 // En grupos, Telegram agrega el @usuario del bot al comando
 check('tolera el sufijo @NombreDelBot',
   correr('09-comandos.js', filasPlanilla,
-    nodosParaComandos('/ultimas@BibliografiaMemoria_bot'))[0].json.comando === '/ultimas');
+    nodosParaComandos('/lista@BibliografiaMemoria_bot'))[0].json.comando === 'lista');
 
-check('planilla vacia no rompe /ultimas',
-  correr('09-comandos.js', [{}], nodosParaComandos('/ultimas'))[0].json
-    .respuesta.includes('Todavia no hay referencias'));
+check('planilla vacia no rompe la lista',
+  correr('09-comandos.js', [{}], nodosParaComandos('/lista'))[0].json
+    .respuesta.includes('No hay nada que mostrar'));
 
 // ===========================================================================
 titulo('Caso 11 — /ver y /borrar');
 
-// --- Router: resolver la clave -------------------------------------------
+// --- Navegacion: la ficha de una referencia ------------------------------
 let r11 = correr('09-comandos.js', filasPlanilla,
-  nodosParaComandos('/ver osterroth2021energy'))[0].json;
-check('/ver enruta a la rama de lectura', r11.accion === 'ver', r11.accion);
-check('/ver arrastra el link de la nota',
-  r11.link_nota === 'https://docs.google.com/document/d/BBB/edit');
+  nodosParaComandos('/ver_osterroth2021energy'))[0].json;
+check('/ver_<clave> abre la ficha, no dispara nada', r11.accion === 'responder', r11.accion);
+check('la ficha ofrece las tres acciones tocables',
+  r11.respuesta.includes('/resumen_osterroth2021energy')
+  && r11.respuesta.includes('/enlaces_osterroth2021energy')
+  && r11.respuesta.includes('/borrar_osterroth2021energy'), r11.respuesta);
+check('y ofrece volver a la lista', r11.respuesta.includes('/lista'));
+
+// --- El prefijo largo tiene que ganarle al corto -------------------------
+check('/borrar_si_ no se confunde con /borrar_',
+  correr('09-comandos.js', filasPlanilla,
+    nodosParaComandos('/borrar_si_osterroth2021energy'))[0].json.comando === 'borrar_si');
+check('/borrar_ pide confirmacion en vez de borrar',
+  correr('09-comandos.js', filasPlanilla,
+    nodosParaComandos('/borrar_osterroth2021energy'))[0].json.accion === 'responder');
 
 r11 = correr('09-comandos.js', filasPlanilla,
-  nodosParaComandos('/borrar osterroth2021energy'))[0].json;
-check('/borrar enruta a la rama de borrado', r11.accion === 'borrar');
+  nodosParaComandos('/borrar_osterroth2021energy'))[0].json;
+check('la confirmacion exige un segundo toque distinto',
+  r11.respuesta.includes('/borrar_si_osterroth2021energy'), r11.respuesta);
+check('y deja salida sin borrar', r11.respuesta.includes('/ver_osterroth2021energy'));
+
+// Solo el segundo paso llega a la rama destructiva
+r11 = correr('09-comandos.js', filasPlanilla,
+  nodosParaComandos('/borrar_si_osterroth2021energy'))[0].json;
+check('/borrar_si_<clave> si enruta al borrado', r11.accion === 'borrar', r11.accion);
 check('calcula la fila de la planilla (encabezados + posicion)',
   r11.fila_numero === 3, `fila_numero=${r11.fila_numero}`);
 
-// Una clave inexistente NO puede terminar borrando otra cosa
+// --- /resumen es el que va a leer la nota --------------------------------
 r11 = correr('09-comandos.js', filasPlanilla,
-  nodosParaComandos('/borrar no-existe-esta-clave'))[0].json;
+  nodosParaComandos('/resumen_osterroth2021energy'))[0].json;
+check('/resumen_<clave> enruta a la lectura de la nota', r11.accion === 'ver', r11.accion);
+check('y arrastra el link de la nota',
+  r11.link_nota === 'https://docs.google.com/document/d/BBB/edit');
+
+// --- Enlaces de una referencia concreta ----------------------------------
+r11 = correr('09-comandos.js', filasPlanilla,
+  nodosParaComandos('/enlaces_osterroth2021energy'))[0].json;
+check('/enlaces_<clave> apunta a la fila exacta de la planilla',
+  r11.respuesta.includes('range=A3'), r11.respuesta);
+check('y a la nota de lectura',
+  r11.respuesta.includes('https://docs.google.com/document/d/BBB/edit'));
+
+// --- Una clave inexistente nunca puede borrar otra cosa ------------------
+r11 = correr('09-comandos.js', filasPlanilla,
+  nodosParaComandos('/borrar_si_noexisteestaclave'))[0].json;
 check('clave inexistente no enruta a borrar', r11.accion === 'responder', r11.accion);
 check('y lo dice', r11.respuesta.includes('No encontre'), r11.respuesta.slice(0, 50));
 
