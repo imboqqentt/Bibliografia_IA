@@ -44,11 +44,18 @@ function correr(archivo, entrada, nodosPrevios) {
   const contexto = {
     $input: items(entrada),
     $now: ahoraFalso,
+    // $('Nodo') da acceso a la salida del nodo y, ademas, a sus PARAMETROS
+    // via .params — que es como los comandos deducen el ID de la planilla y
+    // el repo sin tenerlos escritos. En el test, los parametros del nodo se
+    // declaran en la clave __params del fixture.
     $: (nombre) => {
       if (!(nombre in nodosPrevios)) {
         throw new Error(`El test no definio la salida del nodo "${nombre}"`);
       }
-      return items([nodosPrevios[nombre]]);
+      const fixture = nodosPrevios[nombre] || {};
+      const proxy = items([fixture]);
+      proxy.params = fixture.__params || {};
+      return proxy;
     },
     Buffer,
     URL,
@@ -636,6 +643,83 @@ check('un .doc adjunto no se trata como PDF',
       document: { file_id: 'X', file_name: 'notas.docx', mime_type: 'application/msword' },
     },
   }], {})[0].json.hay_pdf_adjunto === false);
+
+// ===========================================================================
+titulo('Caso 10 — comandos del bot');
+
+const filasPlanilla = [
+  { citation_key: 'ackermann2022rationales', titulo: 'Rationales and functions of disliked music',
+    anio: '2022', estado_resumen: 'OK',
+    link_nota: 'https://docs.google.com/document/d/AAA/edit' },
+  { citation_key: 'osterroth2021energy', titulo: 'Energy Consumption & Heat Transfer <in> Buildings',
+    anio: '2021', estado_resumen: 'PENDIENTE',
+    link_nota: 'https://docs.google.com/document/d/BBB/edit' },
+  { citation_key: 'dalkilic2025access', titulo: 'Otro trabajo',
+    anio: '2025', estado_resumen: 'PENDIENTE', link_nota: '' },
+  // La fila vacia que mete alwaysOutputData cuando la planilla no tiene datos
+  {},
+];
+
+// Los comandos leen el ID de la planilla y el repo desde OTROS nodos, via
+// $('Nodo').params. El harness los emula igual que cualquier salida previa.
+const nodosParaComandos = (texto) => ({
+  'Telegram Trigger': { message: { chat: { id: 1 }, text: texto } },
+  'Leer consolidado': {
+    __params: {
+      documentId: { __rl: true, value: 'ID_PLANILLA_123', mode: 'id' },
+      sheetName: { __rl: true, value: 'Consolidado', mode: 'name' },
+    },
+  },
+  'Leer referencias.bib': {
+    __params: { owner: { __rl: true, value: 'imboqqentt' },
+      repository: { __rl: true, value: 'Bibliografia_IA' },
+      filePath: 'referencias.bib' },
+  },
+});
+
+let r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/enlaces'))[0].json;
+check('/enlaces cuenta solo las filas reales', r10.total_referencias === 3,
+  String(r10.total_referencias));
+check('/enlaces arma el link de la planilla desde otro nodo',
+  r10.respuesta.includes('spreadsheets/d/ID_PLANILLA_123'), r10.respuesta);
+check('/enlaces arma el link del .bib desde otro nodo',
+  r10.respuesta.includes('imboqqentt/Bibliografia_IA/blob/HEAD/referencias.bib'));
+
+r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/ultimas'))[0].json;
+check('/ultimas muestra primero la mas reciente',
+  r10.respuesta.indexOf('dalkilic2025access') < r10.respuesta.indexOf('ackermann2022rationales'));
+check('/ultimas enlaza cada nota',
+  r10.respuesta.includes('<a href="https://docs.google.com/document/d/AAA/edit">'));
+
+// El caso que tumbaba el mensaje entero con un 400 antes de escapar
+check('escapa & y <> de los titulos',
+  r10.respuesta.includes('Energy Consumption &amp; Heat Transfer &lt;in&gt; Buildings')
+  && !r10.respuesta.includes('<in>'), r10.respuesta);
+
+r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/pendientes'))[0].json;
+check('/pendientes filtra por estado_resumen', r10.total_pendientes === 2,
+  String(r10.total_pendientes));
+check('/pendientes no lista las que si tienen resumen',
+  !r10.respuesta.includes('ackermann2022rationales'));
+check('una nota sin link no rompe el mensaje',
+  r10.respuesta.includes('Otro trabajo') && !r10.respuesta.includes('href=""'));
+
+// /start es el que motivo la rama: Telegram lo manda solo al abrir el chat
+r10 = correr('09-comandos.js', filasPlanilla, nodosParaComandos('/start'))[0].json;
+check('/start responde la ayuda en vez de registrarse como referencia',
+  r10.respuesta.includes('Comandos disponibles'), r10.respuesta.slice(0, 60));
+check('un comando desconocido tambien cae en la ayuda',
+  correr('09-comandos.js', filasPlanilla,
+    nodosParaComandos('/loquesea'))[0].json.respuesta.includes('Comandos disponibles'));
+
+// En grupos, Telegram agrega el @usuario del bot al comando
+check('tolera el sufijo @NombreDelBot',
+  correr('09-comandos.js', filasPlanilla,
+    nodosParaComandos('/ultimas@BibliografiaMemoria_bot'))[0].json.comando === '/ultimas');
+
+check('planilla vacia no rompe /ultimas',
+  correr('09-comandos.js', [{}], nodosParaComandos('/ultimas'))[0].json
+    .respuesta.includes('Todavia no hay referencias'));
 
 // ===========================================================================
 titulo('Resultado');

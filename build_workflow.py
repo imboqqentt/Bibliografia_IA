@@ -342,7 +342,56 @@ nodes.append(node(
     notes="Remitente no autorizado: el flujo termina aqui sin responder.",
 ))
 
-nodes.append(code_node("Normalizar entrada", "01-normalizar-entrada.js", (-360, 280),
+# --- Rama de comandos ------------------------------------------------------
+#
+# Los mensajes que empiezan con "/" no son fuentes bibliograficas. Antes de
+# esta rama, un "/start" —que Telegram manda solo al abrir el chat por primera
+# vez— entraba al flujo normal e intentaba registrarse como referencia.
+nodes.append(node(
+    "Es comando?", "n8n-nodes-base.if", 2.2, (-360, 300),
+    {"conditions": cond_bool(
+        "={{ String($json.message?.text ?? '').trim().startsWith('/') }}"),
+     "options": {}},
+    notes="Los mensajes que empiezan con / se responden y no se registran.",
+))
+
+nodes.append(node(
+    "Leer consolidado (comandos)", "n8n-nodes-base.googleSheets", 4.5, (-140, 100),
+    {
+        # El ID y la pestana se leen del nodo que ya tienes configurado, para
+        # no pedirte que los pegues por tercera vez. $('Nodo').params expone
+        # los parametros crudos, y en un resource locator el ID vive en
+        # .value tanto en modo "By ID" como en modo "From list".
+        "documentId": {"__rl": True, "mode": "id",
+                       "value": "={{ $('Leer consolidado').params.documentId.value }}"},
+        "sheetName": {"__rl": True, "mode": "name",
+                      "value": "={{ $('Leer consolidado').params.sheetName.value }}"},
+        "options": {},
+    },
+    retryOnFail=True, maxTries=3, waitBetweenTries=2000, alwaysOutputData=True,
+    credentials={"googleSheetsOAuth2Api": {"id": "REEMPLAZAR", "name": "Google Sheets Memoria"}},
+    notes="Misma planilla que 'Leer consolidado': hereda su ID por expresion.",
+))
+
+nodes.append(code_node("Armar respuesta comando", "09-comandos.js", (80, 100),
+                       "Arma la respuesta del comando en HTML de Telegram."))
+
+nodes.append(node(
+    "Responder comando", "n8n-nodes-base.telegram", 1.2, (300, 100),
+    {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        # Ya viene escapado y con enlaces desde el nodo Code: ver ESCAPADO_EN_ORIGEN.
+        "text": "={{ $json.respuesta }}",
+        "additionalFields": {"appendAttribution": False,
+                             "disable_web_page_preview": True,
+                             "parse_mode": PARSE_MODE_TELEGRAM},
+    },
+    retryOnFail=True, maxTries=3,
+    credentials={"telegramApi": {"id": "REEMPLAZAR", "name": "Telegram Bot Memoria"}},
+    notes="Fin de la rama de comandos: no se escribe nada en ninguna parte.",
+))
+
+nodes.append(code_node("Normalizar entrada", "01-normalizar-entrada.js", (-360, 480),
                        "Extrae URL y DOI del mensaje. Sin llamadas externas."))
 
 nodes.append(node(
@@ -749,7 +798,10 @@ def rama(verdadero, falso):
 
 connections = {
     "Telegram Trigger": main("Chat autorizado?"),
-    "Chat autorizado?": rama("Normalizar entrada", "Ignorar mensaje"),
+    "Chat autorizado?": rama("Es comando?", "Ignorar mensaje"),
+    "Es comando?": rama("Leer consolidado (comandos)", "Normalizar entrada"),
+    "Leer consolidado (comandos)": main("Armar respuesta comando"),
+    "Armar respuesta comando": main("Responder comando"),
     "Normalizar entrada": main("Hay PDF adjunto?"),
     # Con adjunto se salta toda la descarga web y se entra directo al extractor
     # de PDF, que ya existia para los PDFs descargados de la web.
@@ -822,6 +874,17 @@ assert len(nombres) == len(set(nombres)), "Hay nombres de nodo repetidos"
 # Ningun nodo de Telegram puede quedarse sin parse_mode explicito: el nodo le
 # pone Markdown legacy por su cuenta cuando falta, y ahi cualquier guion bajo
 # de un link revienta el envio con un 400. Ver el comentario de tg_esc().
+# Nodos cuyo texto llega YA escapado desde un nodo Code, que ademas genera
+# etiquetas <a href> a proposito. Escaparlos otra vez en la expresion
+# mostraria los tags en pantalla en vez de los enlaces.
+#
+# La excepcion se anota aca, una por una y con nombre, para que siga siendo
+# visible: el resto de los nodos mantiene la regla de escapar todo.
+ESCAPADO_EN_ORIGEN = {
+    # code/09-comandos.js escapa con esc() cada dato que saca de la planilla.
+    "Responder comando": "09-comandos.js",
+}
+
 for n in nodes:
     # Solo los que ENVIAN texto. El nodo que baja el PDF adjunto tambien es de
     # Telegram, pero no manda nada y no tiene parse_mode que fijar.
@@ -830,6 +893,12 @@ for n in nodes:
         modo = n["parameters"].get("additionalFields", {}).get("parse_mode")
         assert modo == PARSE_MODE_TELEGRAM, (
             "%s no fija parse_mode=%s" % (n["name"], PARSE_MODE_TELEGRAM))
+        if n["name"] in ESCAPADO_EN_ORIGEN:
+            origen = ESCAPADO_EN_ORIGEN[n["name"]]
+            assert "esc(" in js(origen), (
+                "%s confia el escapado a %s, pero ahi no hay funcion esc()"
+                % (n["name"], origen))
+            continue
         texto = n["parameters"].get("text", "")
         # Cada interpolacion tiene que venir escapada.
         crudas = [t for t in re.findall(r"\{\{(.*?)\}\}", texto, re.S)

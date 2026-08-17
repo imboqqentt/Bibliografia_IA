@@ -167,6 +167,27 @@ Dos límites que conviene saber:
 
 > Mándalo como **archivo**, no como foto. En Telegram, *Adjuntar → Archivo*.
 
+### 2.2 Comandos para revisar desde el teléfono
+
+Cualquier mensaje que empiece con `/` se responde y **no** se registra como
+referencia.
+
+| Comando | Qué devuelve |
+|---|---|
+| `/enlaces` | Total registrado, más el link a la planilla y al `referencias.bib` |
+| `/ultimas` | Las 5 más recientes, cada título enlazado a su nota de lectura |
+| `/pendientes` | Las que quedaron sin resumen automático, para completarlas a mano |
+| `/ayuda` | La lista de comandos |
+
+Los enlaces **no están escritos en ninguna parte**: se deducen en tiempo de
+ejecución de los nodos que ya apuntan a tu planilla y a tu repositorio, con
+`$('Nodo').params`. Si algún día cambias de planilla, los comandos siguen a la
+nueva sin tocar nada.
+
+> Esta rama arregla además un problema silencioso: `/start` —que Telegram manda
+> solo al abrir el chat con el bot por primera vez— antes entraba al flujo
+> normal e intentaba registrarse como si fuera una fuente bibliográfica.
+
 ---
 
 ## 3. Preparar el repositorio del `.bib` y sincronizarlo con Overleaf
