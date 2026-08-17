@@ -25,7 +25,8 @@ Nunca escribe un autor, un año, una revista ni un tipo de publicación.
 | Archivo | Qué es |
 |---|---|
 | `autohospedaje/` | Cómo y dónde correr n8n: notebook, PC de casa, Raspberry, VPS |
-| `workflow.json` | El flujo completo, listo para importar con Ctrl+V en el canvas de n8n |
+| `workflow.json` | El flujo completo (Anthropic), listo para importar con Ctrl+V en el canvas de n8n |
+| `workflow-gemini.json` | La misma variante con Google Gemini, que tiene capa gratuita |
 | `code/*.js` | El código de los 12 nodos Code, comentado, en archivos separados |
 | `build_workflow.py` | Regenera `workflow.json` inyectando los `code/*.js`. Se corre tras editar el JS |
 | `test/harness.js` | Banco de pruebas de los nodos Code, ejecutable fuera de n8n (`node test/harness.js`) |
@@ -373,22 +374,115 @@ Para tenerlo ordenado, crea una carpeta *Notas de lectura*, copia su ID desde la
 
 ---
 
-## 5. Importar el flujo
+## 5. Instalar el flujo en n8n
 
-1. Abre `workflow.json` o `workflow-gemini.json` —según el proveedor que elegiste en
-   §1.1—, selecciona todo y cópialo.
-2. En n8n, entra a un workflow nuevo y pega con **Ctrl+V** sobre el canvas.
-3. Recorre los nodos con credencial (aparecen con un triángulo de advertencia) y elige
-   la credencial correcta en cada uno:
-   Telegram Trigger · Avisar duplicado · Confirmar por Telegram ·
-   **Modelo Anthropic** o **Modelo Gemini** ·
-   Leer consolidado · Agregar fila consolidado · Leer referencias.bib ·
-   Escribir referencias.bib · Crear nota · Escribir nota.
-4. Reemplaza los placeholders:
-   - `REEMPLAZAR_ID_DE_LA_PLANILLA` en los dos nodos de Sheets;
-   - `REEMPLAZAR_USUARIO_GITHUB` y `REEMPLAZAR_REPO_OVERLEAF` en los dos nodos de GitHub;
-   - el `folderId` del nodo **Crear nota**, si quieres una carpeta específica.
-5. Guarda y **publica** el workflow con el boton *Publish* de arriba a la derecha.
+Vale tanto para una instalación nueva como para actualizar una que ya tenías.
+Si es lo segundo, **empieza por §5.4**, que tiene un paso previo que te ahorra
+rehacer trabajo.
+
+El flujo son **48 nodos** más 5 notas adhesivas. Nada de eso se configura a
+mano: sólo hay **5 credenciales** y **4 valores propios** que rellenar. Todo lo
+demás viene resuelto.
+
+### 5.1 Pegar el flujo
+
+1. Abre `workflow.json` **o** `workflow-gemini.json` —según el proveedor de
+   modelo que elegiste en §1.1—, selecciona todo (**Ctrl+A**) y copia
+   (**Ctrl+C**).
+2. En n8n: **Overview → Create Workflow**.
+3. Haz clic sobre el lienzo vacío y pega (**Ctrl+V**).
+
+Aparecen los 48 nodos con triángulos de advertencia. Es lo esperado: marcan lo
+que falta por conectar.
+
+> **Importas uno de los dos archivos, no los dos.** Si importas ambos, los dos
+> Telegram Trigger se pelean el mismo webhook y sólo responde uno.
+
+### 5.2 Conectar las 5 credenciales
+
+Abre cada nodo y elige la credencial del desplegable. Están agrupadas por
+credencial para que la elijas una vez y recorras sus nodos seguidos:
+
+| Credencial | Nodos donde va |
+|---|---|
+| **Telegram API** (5) | Telegram Trigger · Avisar duplicado · Confirmar por Telegram · Responder comando · Descargar PDF de Telegram |
+| **Google Sheets OAuth2** (4) | Leer consolidado · Agregar fila consolidado · Leer consolidado (comandos) · Borrar fila |
+| **GitHub API** (4) | Leer referencias.bib · Escribir referencias.bib · Leer referencias.bib (comandos) · Escribir referencias.bib (comandos) |
+| **Google Docs OAuth2** (3) | Crear nota · Escribir nota · Leer nota (comandos) |
+| **Anthropic** *o* **Google Gemini(PaLM)** (1) | Modelo Anthropic *o* Modelo Gemini |
+
+⚠️ **Elige siempre la credencial existente del desplegable, no crees una
+nueva.** Al abrir un nodo de Telegram, n8n a veces ofrece crear una credencial
+en blanco; si aceptas, quedan dos con el mismo aspecto y el nodo habla con otro
+bot. Ponle nombre a tus credenciales (`Telegram Bot Memoria`, no *Unnamed
+credential*) para poder distinguirlas de un vistazo.
+
+### 5.3 Rellenar los 4 valores propios
+
+| Valor | Nodos | De dónde sale |
+|---|---|---|
+| `REEMPLAZAR_ID_DE_LA_PLANILLA` | Leer consolidado · Agregar fila consolidado | El ID en la URL de tu planilla (§4) |
+| `REEMPLAZAR_USUARIO_GITHUB` | Leer referencias.bib · Escribir referencias.bib | Tu usuario u organización de GitHub |
+| `REEMPLAZAR_REPO_OVERLEAF` | Leer referencias.bib · Escribir referencias.bib | El repo que sincroniza con Overleaf (§3) |
+| `folderId` (opcional) | Crear nota | ID de una carpeta de Drive; `default` = raíz |
+
+**Sólo esos.** Los nodos de la rama de comandos —`Leer consolidado (comandos)`,
+`Borrar fila`, `Leer/Escribir referencias.bib (comandos)`— **no** hay que
+configurarlos: leen la planilla y el repo de los nodos de arriba mediante
+`$('Nodo').params`. Si mañana cambias de planilla, cambias un sitio y todo lo
+demás sigue.
+
+⚠️ **Después de tocar la planilla o la pestaña en un nodo de Sheets, revisa
+`Agregar fila consolidado`.** Cambiar el documento reinicializa el componente
+completo y el **Mapping Column Mode** vuelve a su valor de fábrica, *Map Each
+Column Manually*. Tiene que quedar en **Map Automatically**, y ése es el ajuste
+que va **al final**, cuando ya no vayas a tocar planilla ni pestaña.
+
+### 5.4 Si estás actualizando un flujo que ya funcionaba
+
+Los pasos de arriba valen igual, pero **antes de importar nada**:
+
+1. **Guarda una copia del flujo actual.** Abre el workflow viejo, clic en el
+   lienzo, **Ctrl+A** y **Ctrl+C**, y pega en un archivo de texto. Ahí quedan
+   tus IDs, tu repo y tus ajustes, por si necesitas consultarlos.
+2. **Importa en un workflow NUEVO**, no encima del que anda. El viejo se queda
+   publicado y respondiendo mientras armas el nuevo.
+3. Configura el nuevo con §5.2 y §5.3.
+4. Cuando esté listo: **despublica el viejo primero**, y recién entonces
+   publica el nuevo.
+
+> El orden del paso 4 importa. Telegram acepta **un solo webhook por bot**: si
+> publicas el nuevo con el viejo aún publicado, el registro del webhook se
+> pisa y puedes quedarte sin ninguno de los dos respondiendo. Despublicar
+> primero deja el terreno limpio.
+
+Cuando confirmes que el nuevo funciona, borra el viejo.
+
+### 5.5 Publicar
+
+Botón **Publish** arriba a la derecha. Ese es el momento en que el Telegram
+Trigger registra el webhook con Telegram; hasta entonces el bot no responde a
+mensajes reales.
+
+> Necesitas que tu n8n sea alcanzable desde internet por HTTPS. Si lo
+> autohospedas, mira `autohospedaje/` — hay un túnel de Cloudflare listo, y uno
+> temporal para probar sin dominio.
+
+### 5.6 Comprobar que quedó bien
+
+Escríbele `/start` al bot. Si responde con el menú, están funcionando la
+credencial de Telegram, el webhook, la validación de tu chat y la lectura de la
+planilla — o sea, media instalación en un solo mensaje.
+
+Después manda un DOI de acceso abierto, por ejemplo:
+
+```
+https://doi.org/10.3390/en14164935
+```
+
+La respuesta con `Resumen: OK` confirma el resto: Crossref, el modelo, GitHub,
+Docs y Sheets. Si algo falla, §7 tiene los errores frecuentes con su causa
+exacta.
 
 ---
 
@@ -488,12 +582,45 @@ pendientes: filtra por `PENDIENTE` y resume esas a mano.
 Pídele a alguien que le escriba al bot. Esperado: silencio absoluto. En el historial de
 ejecuciones de n8n verás que el flujo se cortó en **Chat autorizado?**.
 
-### Si algo falla
+---
 
-Ve a **Executions** en n8n y abre la ejecución. Los nodos que fallaron pero no cortaron
-el flujo aparecen en amarillo: haz click y mira el campo `error`. Los nodos externos
-tienen reintentos (3 intentos con espera) y `continueOnFail` donde corresponde, así que
+## 7. Errores frecuentes y su causa
+
+Ve a **Executions** en n8n y abre la ejecución. Los nodos que fallaron pero no
+cortaron el flujo aparecen en amarillo: haz click y mira el campo `error`. Los
+nodos externos tienen reintentos y `continueOnFail` donde corresponde, así que
 la mayoría de las fallas se ven como campos vacíos, no como flujo caído.
+
+Esta tabla recoge errores reales de puesta en marcha. Casi ninguno dice lo que
+en realidad pasa.
+
+| El error dice | Lo que pasa de verdad |
+|---|---|
+| `At least one value has to be added under 'Values to Send'` | No falta ningún dato: el **Mapping Column Mode** de `Agregar fila consolidado` se reseteó a *Map Each Column Manually*. Vuelve a ponerlo en **Map Automatically** — y hazlo al final, después de fijar planilla y pestaña |
+| `can't parse entities: Can't find end of the entity` | Falta `Parse Mode = HTML` en un nodo de Telegram. Sin él, el nodo manda **Markdown legacy** por su cuenta, y un guion bajo de un link de Docs abre una cursiva que nunca cierra |
+| `can't parse entities: Unexpected end tag` | El campo `Text` quedó en modo **Fixed**. Se está enviando el texto de la expresión tal cual, y Telegram choca con el `</` de un `.replace(/</g, …)`. Pásalo a **Expression** |
+| `Bad Request: invalid file_id` | El nodo habla con **otro bot**. Los `file_id` son privados de cada bot. Comprueba que la credencial sea la misma del `Telegram Trigger` — dos credenciales sin nombre se ven idénticas en el desplegable |
+| `A Model sub-node must be connected and enabled` | Activaste **Auto-Fix Format** en el parser. Eso le agrega una entrada `Model` obligatoria: conéctale el mismo sub-nodo de modelo que alimenta `Resumir con LLM` |
+| `Model output doesn't fit required format`, y en la entrada se ve prosa cortada | El modelo se quedó sin presupuesto. **Gemini cuenta el razonamiento dentro de `maxOutputTokens`**; súbelo a `8192` en el sub-nodo del modelo |
+| `Chat autorizado?` siempre da `false` | Compara el `chat.id` del mensaje contra `$env.BIBLIO_TELEGRAM_CHAT_ID`. El error típico es haber anotado el **id del bot** (el número antes de los dos puntos del token) en vez del tuyo |
+| El bot no responde a nada | El workflow no está publicado, o la URL pública de n8n no coincide con la que Telegram tiene registrada. Republicar re-registra el webhook |
+| El flujo usa siempre la misma fuente | Quedaron **datos pineados** en el `Telegram Trigger`. Quita la chincheta |
+| `404 NOT_FOUND` en un nodo de Google | El ID de la planilla o del documento. Cambia el selector a *From list* y elige de la lista |
+| `invalid_client` al conectar Google | El Client ID o el Secret no calzan. El ID termina en `.apps.googleusercontent.com` y el secret empieza con `GOCSPX-` |
+| La sesión de Google se cae a los 7 días | El proyecto de Google Cloud quedó en estado *Testing*. Publícalo a *Production* |
+
+### Cuando el error no es un error
+
+Tres resultados parecen fallas y son el comportamiento diseñado:
+
+- **`estado_resumen = PENDIENTE`.** La fuente no se pudo leer: muro de pago,
+  bloqueo anti-bots o PDF escaneado. La referencia queda registrada igual, con
+  metadatos correctos de Crossref. El bot te dice el motivo en el mensaje.
+- **`bib: sin cambios (X ya estaba)`.** Segunda capa de idempotencia. Reenviar
+  el mismo link no duplica la entrada.
+- **`metadatos_manuales = SÍ`.** No hubo DOI ni coincidencia fiable en
+  Crossref. El flujo prefiere quedarse sin metadatos antes que inventarlos:
+  hay que completarlos a mano.
 
 ---
 

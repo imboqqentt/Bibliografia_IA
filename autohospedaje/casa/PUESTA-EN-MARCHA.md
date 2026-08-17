@@ -353,20 +353,20 @@ contraseña. **Es local, tuya, no se registra en ningún servicio.** Anótala.
 
 ## 3.5 Importar y conectar
 
-1. Abre el archivo que corresponde al proveedor que elegiste en §2.4
-   (`workflow-gemini.json` o `workflow.json`), copia todo y pega con **Ctrl+V**
-   en el canvas.
+El paso a paso completo está en **§5 del [README principal](../../README.md)**,
+con la tabla de qué credencial va en qué nodo y los 4 valores que hay que
+rellenar. No lo repito acá para que exista en un solo lugar.
 
-   > Si ya habías importado la otra variante, bórrala primero: dos flujos con
-   > el mismo Telegram Trigger se pelean el webhook y sólo uno responde.
+Resumido: pegas el archivo que corresponde al proveedor que elegiste en §2.4
+(`workflow-gemini.json` o `workflow.json`), conectas las 5 credenciales y
+rellenas el ID de la planilla y el `owner`/`repository` de GitHub.
 
-2. Conecta las credenciales **por etapas**, no todas de golpe:
-   - Telegram (los 3 nodos)
-   - El modelo: *Modelo Gemini* o *Modelo Anthropic*, según el archivo que
-     importaste
-   - Google Sheets → pega el ID de la planilla en los dos nodos
-   - GitHub → completa `owner` y `repository` en los dos nodos
-   - Google Docs → ajusta `folderId` si quieres carpeta propia
+> Si ya habías importado la otra variante, bórrala primero: dos flujos con el
+> mismo Telegram Trigger se pelean el webhook y sólo uno responde.
+
+**Conecta por etapas, no todo de golpe.** Después de cada credencial, ejecuta
+el flujo con los datos pineados del bloque 3.6: así sabes exactamente qué
+rompiste si algo falla, en vez de mirar quince nodos a la vez.
 
 ## 3.6 Probar el flujo entero, sin webhook
 
