@@ -373,11 +373,116 @@ nodes.append(node(
     notes="Misma planilla que 'Leer consolidado': hereda su ID por expresion.",
 ))
 
-nodes.append(code_node("Armar respuesta comando", "09-comandos.js", (80, 100),
-                       "Arma la respuesta del comando en HTML de Telegram."))
+nodes.append(code_node("Router de comandos", "09-comandos.js", (80, 100),
+                       "Resuelve el comando y decide: responder, ver o borrar."))
+
+# El Switch rutea por el campo 'accion' que dejo el router. Tres salidas, y
+# cada una termina en el mismo nodo que responde por Telegram.
+nodes.append(node(
+    "Que hacer?", "n8n-nodes-base.switch", 3.2, (300, 100),
+    {
+        "rules": {"values": [
+            {
+                "conditions": cond_str("={{ $json.accion }}", "equals", "ver"),
+                "renameOutput": True, "outputKey": "ver",
+            },
+            {
+                "conditions": cond_str("={{ $json.accion }}", "equals", "borrar"),
+                "renameOutput": True, "outputKey": "borrar",
+            },
+            {
+                "conditions": cond_str("={{ $json.accion }}", "equals", "responder"),
+                "renameOutput": True, "outputKey": "responder",
+            },
+        ]},
+        "options": {},
+    },
+    notes="Salidas: ver | borrar | responder.",
+))
+
+# --- /ver ---
+nodes.append(node(
+    "Leer nota (comandos)", "n8n-nodes-base.googleDocs", 2, (520, -80),
+    {
+        "resource": "document", "operation": "get",
+        "documentURL": "={{ $json.link_nota }}",
+        # 'simple' aplana los parrafos del documento en un solo string .content
+        "simple": True,
+    },
+    retryOnFail=True, maxTries=2, waitBetweenTries=2000,
+    credentials={"googleDocsOAuth2Api": {"id": "REEMPLAZAR", "name": "Google Docs Memoria"}},
+    notes="Lee la nota de lectura para mostrar el comienzo del resumen.",
+))
+
+nodes.append(code_node("Armar vista de nota", "10-ver-referencia.js", (740, -80),
+                       "Extrae la seccion RESUMEN de la nota y la recorta."))
+
+# --- /borrar ---
+#
+# Se borra primero del .bib y despues de la planilla, en ese orden a
+# proposito: si algo falla a medio camino, es preferible que sobre la fila
+# (visible, facil de borrar a mano) a que sobre la entrada .bib, que se
+# arrastraria silenciosamente a la memoria compilada.
+nodes.append(node(
+    "Leer referencias.bib (comandos)", "n8n-nodes-base.github", 1.1, (520, 260),
+    {
+        "resource": "file", "operation": "get",
+        "owner": {"__rl": True, "mode": "name",
+                  "value": "={{ $('Leer referencias.bib').params.owner.value }}"},
+        "repository": {"__rl": True, "mode": "name",
+                       "value": "={{ $('Leer referencias.bib').params.repository.value }}"},
+        "filePath": "={{ $('Leer referencias.bib').params.filePath }}",
+        "asBinaryProperty": False,
+    },
+    retryOnFail=True, maxTries=3, waitBetweenTries=2000,
+    credentials={"githubApi": {"id": "REEMPLAZAR", "name": "GitHub Memoria"}},
+    notes="Mismo repo y ruta que el nodo del flujo principal: los hereda por expresion.",
+))
+
+nodes.append(code_node("Quitar del bib", "11-quitar-del-bib.js", (740, 260),
+                       "Elimina la entrada contando llaves anidadas. Idempotente."))
 
 nodes.append(node(
-    "Responder comando", "n8n-nodes-base.telegram", 1.2, (300, 100),
+    "Escribir referencias.bib (comandos)", "n8n-nodes-base.github", 1.1, (960, 260),
+    {
+        "resource": "file", "operation": "edit",
+        "owner": {"__rl": True, "mode": "name",
+                  "value": "={{ $('Leer referencias.bib').params.owner.value }}"},
+        "repository": {"__rl": True, "mode": "name",
+                       "value": "={{ $('Leer referencias.bib').params.repository.value }}"},
+        "filePath": "={{ $('Leer referencias.bib').params.filePath }}",
+        "binaryData": False,
+        "fileContent": "={{ $json.contenido_base64 }}",
+        "commitMessage": "={{ $json.commit_message }}",
+        "additionalParameters": {},
+    },
+    retryOnFail=True, maxTries=3, waitBetweenTries=3000,
+    credentials={"githubApi": {"id": "REEMPLAZAR", "name": "GitHub Memoria"}},
+))
+
+nodes.append(node(
+    "Borrar fila", "n8n-nodes-base.googleSheets", 4.5, (1180, 260),
+    {
+        "operation": "delete",
+        "documentId": {"__rl": True, "mode": "id",
+                       "value": "={{ $('Leer consolidado').params.documentId.value }}"},
+        "sheetName": {"__rl": True, "mode": "name",
+                      "value": "={{ $('Leer consolidado').params.sheetName.value }}"},
+        "toDelete": "rows",
+        "startIndex": "={{ $('Router de comandos').first().json.fila_numero }}",
+        "numberToDelete": 1,
+    },
+    retryOnFail=True, maxTries=3, waitBetweenTries=2000,
+    credentials={"googleSheetsOAuth2Api": {"id": "REEMPLAZAR", "name": "Google Sheets Memoria"}},
+    notes="La fila se calcula por posicion en la lectura: encabezados en la 1, "
+          "asi que el elemento i vive en la fila i+2.",
+))
+
+nodes.append(code_node("Confirmar borrado", "12-confirmar-borrado.js", (1400, 260),
+                       "Recupera el texto de confirmacion tras el borrado de la fila."))
+
+nodes.append(node(
+    "Responder comando", "n8n-nodes-base.telegram", 1.2, (1620, 100),
     {
         "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
         # Ya viene escapado y con enlaces desde el nodo Code: ver ESCAPADO_EN_ORIGEN.
@@ -800,8 +905,22 @@ connections = {
     "Telegram Trigger": main("Chat autorizado?"),
     "Chat autorizado?": rama("Es comando?", "Ignorar mensaje"),
     "Es comando?": rama("Leer consolidado (comandos)", "Normalizar entrada"),
-    "Leer consolidado (comandos)": main("Armar respuesta comando"),
-    "Armar respuesta comando": main("Responder comando"),
+    "Leer consolidado (comandos)": main("Router de comandos"),
+    "Router de comandos": main("Que hacer?"),
+    # Tres salidas del Switch, en el mismo orden en que se declararon las
+    # reglas: ver | borrar | responder.
+    "Que hacer?": {"main": [
+        [{"node": "Leer nota (comandos)", "type": "main", "index": 0}],
+        [{"node": "Leer referencias.bib (comandos)", "type": "main", "index": 0}],
+        [{"node": "Responder comando", "type": "main", "index": 0}],
+    ]},
+    "Leer nota (comandos)": main("Armar vista de nota"),
+    "Armar vista de nota": main("Responder comando"),
+    "Leer referencias.bib (comandos)": main("Quitar del bib"),
+    "Quitar del bib": main("Escribir referencias.bib (comandos)"),
+    "Escribir referencias.bib (comandos)": main("Borrar fila"),
+    "Borrar fila": main("Confirmar borrado"),
+    "Confirmar borrado": main("Responder comando"),
     "Normalizar entrada": main("Hay PDF adjunto?"),
     # Con adjunto se salta toda la descarga web y se entra directo al extractor
     # de PDF, que ya existia para los PDFs descargados de la web.
@@ -881,8 +1000,11 @@ assert len(nombres) == len(set(nombres)), "Hay nombres de nodo repetidos"
 # La excepcion se anota aca, una por una y con nombre, para que siga siendo
 # visible: el resto de los nodos mantiene la regla de escapar todo.
 ESCAPADO_EN_ORIGEN = {
-    # code/09-comandos.js escapa con esc() cada dato que saca de la planilla.
-    "Responder comando": "09-comandos.js",
+    # A "Responder comando" llegan las tres ramas de comandos, y las tres
+    # escapan con esc() antes de armar el HTML. 12-confirmar-borrado.js solo
+    # reenvia el texto que ya escapo 11.
+    "Responder comando": ["09-comandos.js", "10-ver-referencia.js",
+                          "11-quitar-del-bib.js"],
 }
 
 for n in nodes:
@@ -894,10 +1016,10 @@ for n in nodes:
         assert modo == PARSE_MODE_TELEGRAM, (
             "%s no fija parse_mode=%s" % (n["name"], PARSE_MODE_TELEGRAM))
         if n["name"] in ESCAPADO_EN_ORIGEN:
-            origen = ESCAPADO_EN_ORIGEN[n["name"]]
-            assert "esc(" in js(origen), (
-                "%s confia el escapado a %s, pero ahi no hay funcion esc()"
-                % (n["name"], origen))
+            for origen in ESCAPADO_EN_ORIGEN[n["name"]]:
+                assert "function esc(" in js(origen), (
+                    "%s confia el escapado a %s, pero ahi no hay funcion esc()"
+                    % (n["name"], origen))
             continue
         texto = n["parameters"].get("text", "")
         # Cada interpolacion tiene que venir escapada.

@@ -107,12 +107,16 @@ const msg = $('Telegram Trigger').first().json.message
   || $('Telegram Trigger').first().json.edited_message
   || {};
 
+const textoCrudo = String(msg.text || '').trim();
+
 // "/ultimas@MiBot argumento" -> "/ultimas". En grupos Telegram agrega el @bot.
-const comando = String(msg.text || '')
-  .trim()
+const comando = textoCrudo
   .split(/\s+/)[0]
   .toLowerCase()
   .replace(/@.*$/, '');
+
+// Todo lo que venga despues del comando: "/ver ackermann2022" -> "ackermann2022"
+const argumento = textoCrudo.split(/\s+/).slice(1).join(' ').trim();
 
 const filas = $input.all()
   .map((i) => i.json || {})
@@ -141,12 +145,63 @@ const AYUDA = [
   '/enlaces — planilla y referencias.bib',
   `/ultimas — las ${CUANTAS_ULTIMAS} referencias mas recientes`,
   '/pendientes — las que quedaron sin resumen automatico',
+  '/ver &lt;clave&gt; — el comienzo del resumen',
+  '/borrar &lt;clave&gt; — elimina la referencia',
   '/ayuda — esta lista',
+  '',
+  'La &lt;clave&gt; es la citation key, por ejemplo <code>ackermann2022rationales</code>.',
   '',
   'Para registrar algo, mandame un link, un DOI suelto, '
   + 'o un PDF adjunto con el DOI escrito en el pie.',
 ].join('\n');
 
+/**
+ * Busca una referencia por citation key y devuelve tambien su NUMERO DE FILA
+ * en la planilla, que es lo que necesita el borrado.
+ *
+ * COMO SE CALCULA LA FILA
+ *   El nodo de Sheets no expone el numero de fila al leer, asi que se deduce
+ *   de la posicion: la fila 1 son los encabezados, de modo que el elemento i
+ *   (base 0) de la lectura vive en la fila i + 2.
+ *
+ *   Ojo con el supuesto: la lectura descarta las filas COMPLETAMENTE vacias,
+ *   asi que un hueco en blanco a mitad de la planilla correria la cuenta. Por
+ *   eso la confirmacion del borrado dice siempre que clave y que fila se
+ *   eliminaron: si algun dia no calza, se ve en el mensaje.
+ */
+function buscarPorClave(clave) {
+  const buscada = String(clave || '').trim().toLowerCase();
+  if (!buscada) return null;
+  for (let i = 0; i < filas.length; i++) {
+    if (String(filas[i].citation_key || '').trim().toLowerCase() === buscada) {
+      return { fila: filas[i], indice: i, numeroFila: i + 2 };
+    }
+  }
+  return null;
+}
+
+/** Mensaje cuando la clave no existe, con sugerencias si algo se le parece. */
+function noEncontrada(clave) {
+  const partes = [`No encontre ninguna referencia con la clave <code>${esc(clave)}</code>.`];
+  const suelto = String(clave || '').trim().toLowerCase();
+  const parecidas = filas
+    .map((f) => String(f.citation_key || ''))
+    .filter((k) => suelto.length >= 3 && k.toLowerCase().includes(suelto.slice(0, 8)));
+  if (parecidas.length) {
+    partes.push('', 'Quizas quisiste decir:',
+      ...parecidas.slice(0, 5).map((k) => `<code>${esc(k)}</code>`));
+  } else {
+    partes.push('', 'Usa /ultimas para ver las claves disponibles.');
+  }
+  return partes.join('\n');
+}
+
+// Que hacer despues de este nodo. El Switch siguiente rutea por este campo.
+//   responder -> mandar 'respuesta' y terminar
+//   ver       -> leer la nota de Docs y mostrar el comienzo del resumen
+//   borrar    -> quitar del .bib y de la planilla
+let accion = 'responder';
+let seleccion = null;
 let respuesta;
 
 if (comando === '/enlaces' || comando === '/links') {
@@ -199,6 +254,41 @@ if (comando === '/enlaces' || comando === '/links') {
     ].join('\n');
   }
 
+} else if (comando === '/ver') {
+  if (!argumento) {
+    respuesta = 'Dime cual: <code>/ver ackermann2022rationales</code>\n\n'
+      + 'Con /ultimas ves las claves disponibles.';
+  } else {
+    seleccion = buscarPorClave(argumento);
+    if (!seleccion) {
+      respuesta = noEncontrada(argumento);
+    } else if (!/^https?:\/\//i.test(String(seleccion.fila.link_nota || ''))) {
+      // Puede pasar si la creacion de la nota fallo en su momento.
+      respuesta = `<b>${esc(seleccion.fila.citation_key)}</b> no tiene nota asociada, `
+        + 'asi que no hay resumen que mostrar.';
+    } else {
+      // El texto vive en el documento de Docs, no en la planilla: hay que ir
+      // a buscarlo. Lo hace el nodo siguiente.
+      accion = 'ver';
+      respuesta = '';
+    }
+  }
+
+} else if (comando === '/borrar') {
+  if (!argumento) {
+    respuesta = 'Dime cual: <code>/borrar ackermann2022rationales</code>\n\n'
+      + 'Se elimina de la planilla y del referencias.bib. '
+      + 'La nota de Drive queda, por si quieres conservarla.';
+  } else {
+    seleccion = buscarPorClave(argumento);
+    if (!seleccion) {
+      respuesta = noEncontrada(argumento);
+    } else {
+      accion = 'borrar';
+      respuesta = '';
+    }
+  }
+
 } else {
   // Incluye /start, /help y cualquier comando desconocido.
   respuesta = AYUDA;
@@ -207,7 +297,16 @@ if (comando === '/enlaces' || comando === '/links') {
 return [{
   json: {
     comando,
+    argumento,
+    accion,
     respuesta,
+
+    // Datos de la referencia elegida, para las ramas /ver y /borrar
+    clave: seleccion ? String(seleccion.fila.citation_key || '') : '',
+    titulo: seleccion ? String(seleccion.fila.titulo || '') : '',
+    link_nota: seleccion ? String(seleccion.fila.link_nota || '') : '',
+    fila_numero: seleccion ? seleccion.numeroFila : 0,
+
     total_referencias: filas.length,
     total_pendientes: pendientes.length,
   },

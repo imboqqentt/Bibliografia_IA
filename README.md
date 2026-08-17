@@ -177,7 +177,25 @@ referencia.
 | `/enlaces` | Total registrado, más el link a la planilla y al `referencias.bib` |
 | `/ultimas` | Las 5 más recientes, cada título enlazado a su nota de lectura |
 | `/pendientes` | Las que quedaron sin resumen automático, para completarlas a mano |
+| `/ver <clave>` | El comienzo del resumen, más palabras clave y utilidad |
+| `/borrar <clave>` | Elimina la referencia de la planilla y del `.bib` |
 | `/ayuda` | La lista de comandos |
+
+La `<clave>` es la citation key: `/ver ackermann2022rationales`.
+
+**Sobre `/borrar`.** Quita la fila de la planilla y la entrada del `.bib`, en
+ese orden inverso: primero el `.bib`, después la fila. Es deliberado — si algo
+falla a medio camino, es preferible que sobre una fila (visible, fácil de
+borrar a mano) a que sobre una entrada en el `.bib`, que se arrastraría en
+silencio hasta la memoria compilada.
+
+**La nota de Drive no se borra.** El bot te devuelve su link para que decidas.
+Borrar archivos de tu Drive automáticamente es una puerta que prefiero no
+abrir.
+
+> Si te arrepientes: el `.bib` vive en git, así que la entrada sigue en el
+> historial del repositorio. La fila de la planilla se recupera desde el
+> historial de versiones de Google Sheets.
 
 Los enlaces **no están escritos en ninguna parte**: se deducen en tiempo de
 ejecución de los nodos que ya apuntan a tu planilla y a tu repositorio, con

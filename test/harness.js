@@ -722,6 +722,156 @@ check('planilla vacia no rompe /ultimas',
     .respuesta.includes('Todavia no hay referencias'));
 
 // ===========================================================================
+titulo('Caso 11 — /ver y /borrar');
+
+// --- Router: resolver la clave -------------------------------------------
+let r11 = correr('09-comandos.js', filasPlanilla,
+  nodosParaComandos('/ver osterroth2021energy'))[0].json;
+check('/ver enruta a la rama de lectura', r11.accion === 'ver', r11.accion);
+check('/ver arrastra el link de la nota',
+  r11.link_nota === 'https://docs.google.com/document/d/BBB/edit');
+
+r11 = correr('09-comandos.js', filasPlanilla,
+  nodosParaComandos('/borrar osterroth2021energy'))[0].json;
+check('/borrar enruta a la rama de borrado', r11.accion === 'borrar');
+check('calcula la fila de la planilla (encabezados + posicion)',
+  r11.fila_numero === 3, `fila_numero=${r11.fila_numero}`);
+
+// Una clave inexistente NO puede terminar borrando otra cosa
+r11 = correr('09-comandos.js', filasPlanilla,
+  nodosParaComandos('/borrar no-existe-esta-clave'))[0].json;
+check('clave inexistente no enruta a borrar', r11.accion === 'responder', r11.accion);
+check('y lo dice', r11.respuesta.includes('No encontre'), r11.respuesta.slice(0, 50));
+
+check('/borrar sin argumento no borra nada',
+  correr('09-comandos.js', filasPlanilla,
+    nodosParaComandos('/borrar'))[0].json.accion === 'responder');
+
+// --- Quitar del bib: el caso de las llaves anidadas -----------------------
+const bibDePrueba = `% referencias.bib
+
+@article{ackermann2022rationales,
+  author  = {Ackermann, Taren-Ida and Merrill, Julia},
+  title   = {{Rationales and functions of disliked music}},
+  year    = {2022}
+}
+
+@article{osterroth2021energy,
+  author  = {Osterroth, Isabel Anna and Voigt, Tobias},
+  title   = {{Energy Consumption of Sensors: A Study of \\{Heat\\} Transfer}},
+  year    = {2021}
+}
+
+@misc{dalkilic2025access,
+  title   = {{Otro trabajo}},
+  year    = {2025}
+}
+`;
+
+const contextoBorrado = (clave, fila) => ({
+  'Router de comandos': {
+    clave, fila_numero: fila, titulo: 'Un titulo',
+    link_nota: 'https://docs.google.com/document/d/BBB/edit',
+  },
+});
+
+let r12 = correr('11-quitar-del-bib.js', [{ content: bibDePrueba }],
+  contextoBorrado('osterroth2021energy', 3))[0].json;
+let bibFinal = Buffer.from(r12.contenido_base64, 'base64').toString('utf8');
+
+check('quita la entrada pedida', !bibFinal.includes('osterroth2021energy'));
+check('NO toca las otras entradas',
+  bibFinal.includes('ackermann2022rationales') && bibFinal.includes('dalkilic2025access'));
+check('las llaves anidadas no descuadran el corte',
+  (bibFinal.match(/@/g) || []).length === 2, bibFinal);
+check('no deja huecos de tres saltos', !/\n{3,}/.test(bibFinal));
+check('el commit dice que se elimino',
+  r12.commit_message === 'bib: elimina osterroth2021energy', r12.commit_message);
+check('conserva la cabecera del archivo', bibFinal.startsWith('% referencias.bib'));
+
+// Borrar la ULTIMA entrada es donde se suele romper el recorte
+r12 = correr('11-quitar-del-bib.js', [{ content: bibDePrueba }],
+  contextoBorrado('dalkilic2025access', 4))[0].json;
+bibFinal = Buffer.from(r12.contenido_base64, 'base64').toString('utf8');
+check('borrar la ultima entrada deja el archivo sano',
+  !bibFinal.includes('dalkilic2025access')
+  && (bibFinal.match(/@/g) || []).length === 2
+  && bibFinal.endsWith('}\n'), JSON.stringify(bibFinal.slice(-40)));
+
+// Idempotencia: reintentar un borrado no puede corromper nada
+r12 = correr('11-quitar-del-bib.js', [{ content: bibDePrueba }],
+  contextoBorrado('clave-que-no-esta', 9))[0].json;
+check('clave ausente deja el .bib intacto',
+  Buffer.from(r12.contenido_base64, 'base64').toString('utf8') === bibDePrueba);
+check('y lo reporta sin mentir', r12.quitada_del_bib === false
+  && r12.respuesta.includes('no estaba'), r12.respuesta);
+
+// --- Ver: extraer la seccion RESUMEN de la nota ---------------------------
+const notaDePrueba = [
+  'Energy Consumption of Sensors',
+  '',
+  'Autores: Isabel Anna Osterroth; Tobias Voigt',
+  'Año: 2021',
+  'Citation key: osterroth2021energy',
+  '',
+  '--- RESUMEN ---',
+  'El trabajo evalua el consumo energetico de sensores industriales. '
+  + 'Se midieron doce configuraciones distintas en banco de ensayo. '
+  + 'Los resultados muestran una reduccion del 18% al optimizar el ciclo. '
+  + 'Los autores advierten que el ensayo se limito a temperatura ambiente.',
+  '',
+  '--- PALABRAS CLAVE ---',
+  'sensores, consumo energetico, eficiencia',
+  '',
+  '--- UTILIDAD PARA LA MEMORIA ---',
+  'Sustenta el capitulo de instrumentacion.',
+  '',
+  '--- NOTAS PROPIAS ---',
+  '',
+].join('\n');
+
+const contextoVer = {
+  'Router de comandos': {
+    clave: 'osterroth2021energy', titulo: 'Energy Consumption of Sensors',
+    link_nota: 'https://docs.google.com/document/d/BBB/edit',
+  },
+};
+
+let r13 = correr('10-ver-referencia.js', [{ content: notaDePrueba }], contextoVer)[0].json;
+check('extrae la seccion RESUMEN', r13.tenia_resumen === true);
+check('muestra el comienzo del resumen',
+  r13.respuesta.includes('evalua el consumo energetico'), r13.respuesta);
+check('no arrastra los metadatos de la cabecera',
+  !r13.respuesta.includes('Citation key:'));
+check('no arrastra las NOTAS PROPIAS ni el encabezado siguiente',
+  !r13.respuesta.includes('NOTAS PROPIAS') && !r13.respuesta.includes('---'));
+check('agrega palabras clave y utilidad',
+  r13.respuesta.includes('sensores, consumo energetico')
+  && r13.respuesta.includes('Sustenta el capitulo'));
+check('enlaza la nota completa',
+  r13.respuesta.includes('<a href="https://docs.google.com/document/d/BBB/edit">'));
+
+// Una nota con el resumen pendiente no debe verse como si tuviera resumen
+const notaPendiente = notaDePrueba.replace(
+  /El trabajo evalua[\s\S]*?temperatura ambiente\./,
+  '(Pendiente) Texto extraido demasiado corto (312 caracteres).',
+);
+r13 = correr('10-ver-referencia.js', [{ content: notaPendiente }], contextoVer)[0].json;
+check('distingue un resumen pendiente',
+  r13.respuesta.includes('Sin resumen automatico'), r13.respuesta.slice(0, 80));
+
+check('una nota vacia no rompe',
+  correr('10-ver-referencia.js', [{ content: '' }], contextoVer)[0].json
+    .respuesta.includes('vacia'));
+
+// --- Confirmar borrado: el contrato con el nodo de Telegram ---------------
+check('el nodo final recupera el texto tras el borrado de la fila',
+  correr('12-confirmar-borrado.js', [{ spreadsheetId: 'x' }], {
+    'Quitar del bib': { respuesta: 'Listo. <b>clave</b> eliminada.', clave: 'clave',
+      quitada_del_bib: true, fila_numero: 3 },
+  })[0].json.respuesta === 'Listo. <b>clave</b> eliminada.');
+
+// ===========================================================================
 titulo('Resultado');
 if (fallas === 0) {
   console.log('Todas las comprobaciones pasaron.\n');

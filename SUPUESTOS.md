@@ -150,6 +150,15 @@ Ordenado de más a menos probable.
 
 ### Bastante probable
 
+4c. **`/borrar` calcula la fila por posición.** El nodo de Google Sheets no expone el
+   número de fila al leer, así que se deduce: los encabezados están en la fila 1, de
+   modo que el elemento `i` de la lectura vive en la fila `i + 2`.
+
+   El supuesto que hay detrás: **la planilla no tiene filas completamente vacías en el
+   medio**. La lectura las descarta, y eso correría la cuenta. Por eso la confirmación
+   del borrado dice siempre qué clave y qué fila se eliminaron — si algún día no calza,
+   se ve en el mensaje. Y el `.bib` queda en el historial de git de todas formas.
+
 4b. **El PDF adjunto tiene capa de texto.** La rama de PDFs por Telegram extrae el
    texto tal cual viene en el archivo; no hace OCR. Un escaneo de fotocopia queda con
    `estado_resumen = PENDIENTE` y el motivo lo dice. También aplica el tope de **20 MB
