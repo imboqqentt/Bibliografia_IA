@@ -585,6 +585,28 @@ En el mismo túnel, **Public Hostnames → Add a public hostname**:
 > Y **HTTP, no HTTPS**: ese tramo es interno a Docker. El cifrado hacia
 > internet lo pone Cloudflare.
 
+## 5.2b Agregar la URI de redirección nueva en Google
+
+Hazlo **ahora**, aunque todo parezca andar bien. Cuesta un minuto y evita un
+bloqueo futuro difícil de diagnosticar.
+
+Las credenciales de Google que conectaste antes del dominio se autorizaron
+contra una dirección distinta (`localhost` o el túnel prestado). Los permisos
+ya concedidos **siguen funcionando** —el token está guardado—, pero el día que
+tengas que reconectar una credencial, Google va a rechazar la nueva dirección
+si no está en la lista.
+
+En [console.cloud.google.com](https://console.cloud.google.com) → *APIs y
+servicios* → *Credenciales* → tu **OAuth 2.0 Client ID** → sección **URI de
+redirección autorizados** → *Agregar URI*:
+
+```
+https://n8n.tudominio.me/rest/oauth2-credential/callback
+```
+
+**No borres las anteriores.** Google acepta varias, y conservar la de
+`localhost` te deja seguir trabajando en local si algún día lo necesitas.
+
 ## 5.3 Completar el `.env` y levantar todo
 
 ```bash
